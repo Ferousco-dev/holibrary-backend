@@ -16,6 +16,13 @@ cover: ## Run tests and print coverage
 	go test -race -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
+gate: ## Check coverage against the NFR-012 threshold
+	@fail=0; for pkg in domain service auth; do \
+		pct=$$(go test -cover ./internal/$$pkg/ 2>/dev/null | grep -oE 'coverage: [0-9.]+%' | grep -oE '[0-9.]+'); \
+		printf '  %-10s %s%%' "$$pkg" "$$pct"; \
+		if [ $$(echo "$$pct < 70" | bc -l) -eq 1 ]; then echo "  BELOW GATE"; fail=1; else echo "  ok"; fi; \
+	done; exit $$fail
+
 fmt: ## Format all Go source
 	gofmt -w .
 

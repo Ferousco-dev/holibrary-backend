@@ -48,6 +48,24 @@ jobs:
       - name: Report coverage
         run: go tool cover -func=coverage.out | tail -1
 
+      # NFR-012: at least 70% statement coverage on the packages that hold
+      # business rules. The transport and repository layers are excluded on
+      # purpose -- they are covered by the integration checks, and chasing a
+      # percentage there rewards testing the framework rather than the library.
+      - name: Enforce coverage on business-logic packages
+        run: |
+          fail=0
+          for pkg in domain service auth; do
+            pct=$(go test -cover ./internal/$pkg/ 2>/dev/null \
+                  | grep -oE 'coverage: [0-9.]+%' | grep -oE '[0-9.]+')
+            printf '%-10s %s%%\n' "$pkg" "$pct"
+            if [ "$(echo "$pct < 70" | bc -l)" -eq 1 ]; then
+              echo "  below the 70% gate (NFR-012)"
+              fail=1
+            fi
+          done
+          exit $fail
+
   docker:
     name: Docker image builds
     runs-on: ubuntu-latest
