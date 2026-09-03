@@ -15,6 +15,13 @@ services:
     region: oregon
     branch: main
 
+    # Deployment is driven by the GitHub Actions pipeline, not by pushes.
+    # Render's own auto-deploy would build straight from a commit, before the
+    # tests have run, which would put an untested version in front of students.
+    # The workflow deploys through the API once everything is green, then smoke
+    # tests the result.
+    autoDeploy: false
+
     # Render polls this. It reports whether the database is actually reachable,
     # not merely whether the process is alive, so a service that has lost its
     # database is reported unhealthy rather than quietly failing every request.
