@@ -86,6 +86,37 @@ func VerifyPassword(plain, encoded string) (bool, error) {
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 
+// dummyHash is a real Argon2id hash of a value nobody can log in with. It is
+// verified against when no account matches, so the unknown-account path does
+// the same memory-hard work as the wrong-password path.
+//
+// Without it the two branches took measurably different times: a miss returned
+// after a cheap index lookup, while a real account paid for a 64 MiB Argon2
+// computation. Identical error text is not enough when the latency differs --
+// an attacker can sweep matriculation numbers and read membership off the
+// clock. DEF-017.
+var dummyHash string
+
+func init() {
+	// Generated once at startup, from a value that is discarded immediately.
+	h, err := HashPassword("this password belongs to no account")
+	if err != nil {
+		// HashPassword only fails if the system CSPRNG fails, in which case
+		// nothing else in this service is trustworthy either.
+		panic("cannot initialise password hashing: " + err.Error())
+	}
+	dummyHash = h
+}
+
+// BurnTimeLikeAVerification performs the same work as a real password check and
+// discards the result.
+//
+// Called on the no-such-account path so that an attacker cannot tell a
+// registered matriculation number from an unregistered one by timing.
+func BurnTimeLikeAVerification(plain string) {
+	_, _ = VerifyPassword(plain, dummyHash)
+}
+
 // MinPasswordLength is the shortest password accepted.
 //
 // Length does more for resistance than symbol classes do, so the policy leans

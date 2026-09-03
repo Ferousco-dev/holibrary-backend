@@ -9,13 +9,13 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
 	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
+	"github.com/Ferousco-dev/holibrary-backend/internal/ratelimit"
 	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/response"
 )
 
@@ -144,54 +144,32 @@ func RequireAdmin(next http.Handler) http.Handler {
 	})
 }
 
-// RateLimit throttles a route by client IP.
+// RateLimit throttles a route by client address.
 //
-// Applied to the authentication endpoints, this is what turns password guessing
-// from a background task into an impractical one (NFR-005). It is an in-process
-// fixed window, which is sufficient for a single container; a multi-instance
-// deployment would move the counter into Redis.
-func RateLimit(limit int, window time.Duration) func(http.Handler) http.Handler {
-	type counter struct {
-		count int
-		reset time.Time
-	}
-	var (
-		mu      sync.Mutex
-		clients = make(map[string]*counter)
-	)
-
-	// Old entries are swept periodically so the map cannot grow without bound;
-	// an unbounded map keyed by remote IP is itself a denial-of-service vector.
-	go func() {
-		for range time.Tick(window) {
-			mu.Lock()
-			for ip, c := range clients {
-				if time.Now().After(c.reset) {
-					delete(clients, ip)
-				}
-			}
-			mu.Unlock()
-		}
-	}()
-
+// This is the COARSE half of the control and is set generously on purpose. A
+// whole faculty shares a small number of NAT addresses, so a tight per-IP limit
+// punishes honest students while barely inconveniencing an attacker who can
+// vary their apparent address. It catches a flood, not a guesser.
+//
+// The precise half lives in the authentication service, keyed on the ACCOUNT
+// being attacked -- the one thing an attacker cannot change. See
+// internal/ratelimit (NFR-005, DEF-019).
+func RateLimit(limiter ratelimit.Limiter, p ratelimit.Policy, trustProxyHeaders bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := clientIP(r)
-
-			mu.Lock()
-			c, ok := clients[ip]
-			if !ok || time.Now().After(c.reset) {
-				c = &counter{reset: time.Now().Add(window)}
-				clients[ip] = c
+			ok, err := limiter.Allow(r.Context(), "rl:ip:"+clientIP(r, trustProxyHeaders),
+				p.Limit, p.Window)
+			if err != nil {
+				// A limiter outage must not take the library offline. The
+				// per-account limit still applies and the failure is loud.
+				slog.Error("rate limiter unavailable; allowing the request", "error", err)
+				next.ServeHTTP(w, r)
+				return
 			}
-			c.count++
-			exceeded := c.count > limit
-			mu.Unlock()
-
-			if exceeded {
+			if !ok {
 				w.Header().Set("Retry-After", "60")
 				response.Error(w, http.StatusTooManyRequests, "RATE_LIMITED",
-					"Too many attempts. Please wait a minute and try again.", nil)
+					"Too many requests from this network. Please wait a minute.", nil)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -201,19 +179,28 @@ func RateLimit(limit int, window time.Duration) func(http.Handler) http.Handler 
 
 // clientIP resolves the caller's address.
 //
-// Cloudflare terminates TLS in front of this service, so the socket address is
-// Cloudflare's. CF-Connecting-IP carries the real client. It is only trusted
-// because the deployment guarantees Cloudflare is the only ingress; on a
-// directly exposed server this header would be attacker-controlled.
-func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
-		return ip
-	}
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		if first, _, ok := strings.Cut(forwarded, ","); ok {
-			return strings.TrimSpace(first)
+// CF-Connecting-IP and X-Forwarded-For are ordinary request headers: anyone
+// talking to this service directly can set them to anything. They are only
+// meaningful if every request provably passes through a proxy that overwrites
+// them, and this application cannot verify that from the inside.
+//
+// So the decision is made in configuration and defaults to NOT trusting them.
+// The previous version trusted them unconditionally, which meant that on any
+// path reaching the origin directly -- a preview environment, a misconfigured
+// load balancer, a direct host route -- an attacker could send a fresh
+// CF-Connecting-IP with every request and never be limited at all, or forge a
+// victim's address to lock them out. DEF-019.
+func clientIP(r *http.Request, trustProxyHeaders bool) string {
+	if trustProxyHeaders {
+		if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
+			return ip
 		}
-		return strings.TrimSpace(forwarded)
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			if first, _, ok := strings.Cut(forwarded, ","); ok {
+				return strings.TrimSpace(first)
+			}
+			return strings.TrimSpace(forwarded)
+		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

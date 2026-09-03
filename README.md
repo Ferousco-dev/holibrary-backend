@@ -63,9 +63,16 @@ CREATE UNIQUE INDEX one_active_loan_per_copy
     ON loans (copy_id) WHERE returned_at IS NULL;
 ```
 
-Plus a `SELECT … FOR UPDATE` borrowing-limit check, all inside one transaction.
-Even if every line of Go were wrong, Postgres refuses to lend the same physical
-volume twice.
+Plus a borrowing-limit check taken **while holding a row lock on the member**,
+all inside one transaction. Even if every line of Go were wrong, Postgres refuses
+to lend the same physical volume twice.
+
+> An earlier version of this file claimed that `FOR UPDATE` lock and the code did
+> not contain it. An adversarial audit found the gap, and a test reproduced it: 5
+> simultaneous borrows against a limit of 2 produced **3 loans**. The lock is
+> real now, and the test that caught it runs in the suite. The lesson is recorded
+> rather than quietly deleted — a comment asserting a safety property is a
+> hypothesis, not an enforcement.
 
 ## Not everything circulates
 
@@ -350,7 +357,10 @@ Full policy: `docs/design.md` §4A (DES-010).
 | Passwords | Argon2id, per-password salt, PHC-encoded parameters |
 | Sessions | 15-minute JWT access token; opaque refresh token, stored hashed, rotated on every use |
 | Authorisation | Role checked **server-side** on every protected route. A hidden menu is not access control. |
-| Brute force | 5 attempts/minute/IP on all credential endpoints |
+| Brute force | **5 attempts/minute per account** (the control an attacker cannot dodge by changing address), plus a generous 120/minute per network. Counters live in Redis, so a limit survives a restart and holds across instances. |
+| Proxy headers | `CF-Connecting-IP` / `X-Forwarded-For` are trusted **only** when `TRUST_PROXY_HEADERS=true`. They are ordinary headers anyone can forge if the origin is reachable directly. |
+| Session invalidation | A password change stamps `tokens_invalid_before` **in the same statement as the new hash**, so there is no window for a concurrent refresh to mint a surviving session |
+| Login timing | The unknown-account path performs the same Argon2 work as a real verification, so membership cannot be read off the clock |
 | Injection | Parameterised queries throughout; no string-built SQL |
 | Enumeration | Password reset replies identically whether or not the address is registered |
 | Privacy | A member's record is reached via `/me`, never by an id in the URL — there is no parameter to tamper with |

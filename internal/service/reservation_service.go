@@ -22,6 +22,11 @@ type ReservationStore interface {
 
 // HoldPeriod is how long a member has to collect a book once it is ready.
 //
+// It applies from promotion, not from joining the queue. An earlier version set
+// the expiry when the reservation was created, so a member waiting for a popular
+// title was dropped from the queue after three days without ever having been
+// offered anything (DEF-016).
+//
 // Three days is a guess, not library policy, and is the sort of number that
 // should be confirmed at the Circulation desk before this is used for real
 // lending. It is short on purpose: a long hold keeps a book off the shelf and

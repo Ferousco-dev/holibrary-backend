@@ -11,17 +11,19 @@ import (
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
 	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
+	"github.com/Ferousco-dev/holibrary-backend/internal/ratelimit"
 	"github.com/Ferousco-dev/holibrary-backend/internal/service"
 )
 
 // --- fakes -----------------------------------------------------------------
 
 type fakeUsers struct {
-	user      domain.User
-	hash      string
-	findErr   error
-	newHash   string
-	updateErr error
+	user          domain.User
+	hash          string
+	findErr       error
+	newHash       string
+	updateErr     error
+	invalidBefore time.Time
 }
 
 func (f *fakeUsers) FindByLogin(_ context.Context, _ string) (domain.User, string, error) {
@@ -41,7 +43,11 @@ func (f *fakeUsers) PasswordHash(_ context.Context, _ uuid.UUID) (string, error)
 }
 func (f *fakeUsers) UpdatePassword(_ context.Context, _ uuid.UUID, hash string) error {
 	f.newHash = hash
+	f.invalidBefore = time.Now().UTC().Add(time.Second) // as the SQL stamp does
 	return f.updateErr
+}
+func (f *fakeUsers) TokensInvalidBefore(context.Context, uuid.UUID) (time.Time, error) {
+	return f.invalidBefore, nil
 }
 
 type fakeTokens struct {
@@ -83,7 +89,8 @@ const testSecret = "a-test-secret-at-least-32-characters"
 func newAuth(t *testing.T, u *fakeUsers, tk *fakeTokens, n *fakeNotifier) *service.AuthService {
 	t.Helper()
 	return service.NewAuthService(u, tk, n,
-		auth.NewTokenIssuer(testSecret, 15*time.Minute, 7*24*time.Hour))
+		auth.NewTokenIssuer(testSecret, 15*time.Minute, 7*24*time.Hour),
+		ratelimit.NewMemory())
 }
 
 func activeMember(t *testing.T, password string) (*fakeUsers, domain.User) {
@@ -365,5 +372,58 @@ func TestResetPasswordEnforcesTheMinimumPolicy(t *testing.T) {
 	}
 	if users.newHash != "" {
 		t.Error("a password that fails the policy must not be stored")
+	}
+}
+
+// A refresh must not complete across a password change. The stolen token is
+// consumed, but the account's stamp has moved past it, so no new session is
+// issued (DEF-015).
+func TestRefreshIsRejectedAfterAPasswordChange(t *testing.T) {
+	users, user := activeMember(t, "library2026x")
+	tokens := &fakeTokens{refreshOwner: user.ID}
+	svc := newAuth(t, users, tokens, &fakeNotifier{})
+
+	// Before the change, refresh works.
+	if _, err := svc.Refresh(context.Background(), "stolen"); err != nil {
+		t.Fatalf("refresh should work before the change: %v", err)
+	}
+
+	// The victim changes their password.
+	if err := svc.ChangePassword(context.Background(), user.ID, "library2026x", "newpassword99"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+
+	// The attacker's refresh must now fail, even though the token store would
+	// still hand back an owner.
+	if _, err := svc.Refresh(context.Background(), "stolen"); !errors.Is(err, domain.ErrTokenInvalid) {
+		t.Errorf("refresh after a password change: err = %v, want ErrTokenInvalid", err)
+	}
+}
+
+// Five attempts a minute against one account, whoever is asking. This is the
+// control an attacker cannot dodge by changing address (DEF-019).
+func TestLoginIsRateLimitedPerAccount(t *testing.T) {
+	users, _ := activeMember(t, "library2026x")
+	svc := newAuth(t, users, &fakeTokens{}, &fakeNotifier{})
+
+	var limited bool
+	for i := 0; i < 8; i++ {
+		_, err := svc.Login(context.Background(), "SWE/2025/001", "wrong password 12")
+		if errors.Is(err, domain.ErrRateLimited) {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Error("repeated attempts against one account must be rate limited")
+	}
+
+	// A different account is unaffected: the limit is per account, so one
+	// student cannot lock out another by guessing at them.
+	other, _ := activeMember(t, "library2026x")
+	other.user.Identifier = "SWE/2025/999"
+	svcOther := newAuth(t, other, &fakeTokens{}, &fakeNotifier{})
+	if _, err := svcOther.Login(context.Background(), "SWE/2025/999", "wrong password 12"); errors.Is(err, domain.ErrRateLimited) {
+		t.Error("a different account must not inherit another account's limit")
 	}
 }

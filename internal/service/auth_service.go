@@ -10,12 +10,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
 	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
+	"github.com/Ferousco-dev/holibrary-backend/internal/ratelimit"
 )
 
 // UserStore is the slice of persistence the auth service needs.
@@ -25,6 +28,7 @@ type UserStore interface {
 	FindByEmail(ctx context.Context, email string) (domain.User, error)
 	PasswordHash(ctx context.Context, id uuid.UUID) (string, error)
 	UpdatePassword(ctx context.Context, id uuid.UUID, hash string) error
+	TokensInvalidBefore(ctx context.Context, id uuid.UUID) (time.Time, error)
 }
 
 // TokenStore persists the revocable half of a session.
@@ -48,10 +52,39 @@ type AuthService struct {
 	tokens   TokenStore
 	notifier Notifier
 	issuer   *auth.TokenIssuer
+	limiter  ratelimit.Limiter
+	now      func() time.Time
 }
 
-func NewAuthService(u UserStore, t TokenStore, n Notifier, i *auth.TokenIssuer) *AuthService {
-	return &AuthService{users: u, tokens: t, notifier: n, issuer: i}
+func NewAuthService(u UserStore, t TokenStore, n Notifier, i *auth.TokenIssuer,
+	l ratelimit.Limiter) *AuthService {
+	return &AuthService{
+		users: u, tokens: t, notifier: n, issuer: i, limiter: l,
+		now: func() time.Time { return time.Now().UTC() },
+	}
+}
+
+// allow applies a per-account limit.
+//
+// Keyed on the account rather than the caller's address, because that is the
+// thing an attacker cannot change. Limiting only by IP throttles a shared
+// campus NAT while leaving anyone with a handful of addresses free to guess
+// (DEF-019).
+//
+// A limiter failure permits the request. Redis being down must not lock every
+// member out of the library; the coarse per-IP limit in the middleware still
+// applies, and the failure is loud in the logs.
+func (s *AuthService) allow(ctx context.Context, scope, identity string, p ratelimit.Policy) bool {
+	if s.limiter == nil {
+		return true
+	}
+	ok, err := s.limiter.Allow(ctx, "rl:"+scope+":"+strings.ToLower(strings.TrimSpace(identity)),
+		p.Limit, p.Window)
+	if err != nil {
+		slog.Error("rate limiter unavailable; allowing the request", "scope", scope, "error", err)
+		return true
+	}
+	return ok
 }
 
 // Session is what a successful login hands back.
@@ -76,11 +109,23 @@ type Session struct {
 // after the applicant presents an identity card, exactly as HOL does it today
 // (DOM-006, DEC-006).
 func (s *AuthService) Login(ctx context.Context, login, password string) (Session, error) {
+	// Five attempts a minute against this account, whoever is asking and from
+	// wherever. This is the control that makes guessing impractical (DEF-019).
+	if !s.allow(ctx, "login", login, ratelimit.PerAccountLogin) {
+		return Session{}, domain.ErrRateLimited
+	}
+
 	user, hash, err := s.users.FindByLogin(ctx, login)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			// A distinct "no such user" reply would turn this endpoint into a
 			// way to discover which matriculation numbers are registered.
+			//
+			// Matching the reply is necessary but not sufficient: returning
+			// here immediately, while a real account pays for a 64 MiB Argon2
+			// computation, leaks the same information through latency. Doing
+			// the work anyway makes the two paths cost the same. DEF-017.
+			auth.BurnTimeLikeAVerification(password)
 			return Session{}, domain.ErrInvalidCredentials
 		}
 		return Session{}, err
@@ -141,6 +186,18 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (Session
 	if user.Status != domain.UserActive {
 		return Session{}, domain.ErrMemberNotActive
 	}
+
+	// A refresh that began before a password change must not complete after it.
+	// The token was consumed a moment ago and could have been minted before the
+	// change; checking the account's stamp here is what stops an attacker
+	// racing the victim's password change to obtain a fresh session. DEF-015.
+	invalidBefore, err := s.users.TokensInvalidBefore(ctx, userID)
+	if err != nil {
+		return Session{}, err
+	}
+	if !s.now().After(invalidBefore) {
+		return Session{}, domain.ErrTokenInvalid
+	}
 	return s.issueSession(ctx, user)
 }
 
@@ -172,14 +229,17 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, curr
 	if err != nil {
 		return err
 	}
+	// UpdatePassword stamps tokens_invalid_before in the same statement as the
+	// new hash, so every existing session is void the instant the password
+	// changes -- with no window for a concurrent refresh to slip through
+	// (DEF-006, DEF-015).
 	if err := s.users.UpdatePassword(ctx, userID, newHash); err != nil {
 		return err
 	}
 
-	// Changing a password is how someone reacts to a suspected compromise, so
-	// it must end every other session. Previously the old refresh token kept
-	// working and the change achieved nothing against an attacker who already
-	// held one. DEF-006.
+	// Revoking the stored tokens as well is belt and braces: the stamp already
+	// invalidates them, and this keeps the table from accumulating rows that
+	// can never be used.
 	return s.tokens.RevokeAllRefreshTokens(ctx, userID)
 }
 
@@ -193,6 +253,13 @@ const PasswordResetTTL = 30 * time.Minute
 // account" would let anyone test addresses against the member roll, which is a
 // real privacy leak given what a borrowing history reveals (DOM-009).
 func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {
+	// Three an hour per address, so this endpoint cannot be turned into a way
+	// to flood a member's inbox. The caller is told nothing either way, so the
+	// limit is not itself an enumeration oracle.
+	if !s.allow(ctx, "reset", email, ratelimit.PerAccountReset) {
+		return nil
+	}
+
 	user, err := s.users.FindByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
@@ -229,11 +296,11 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, next string) err
 	if err != nil {
 		return err
 	}
+	// A reset is the stronger case: the person resetting may be locked out
+	// precisely because someone else holds a session. The stamp voids every one
+	// atomically (DEF-006, DEF-015).
 	if err := s.users.UpdatePassword(ctx, userID, hash); err != nil {
 		return err
 	}
-
-	// A reset is the stronger case: the person resetting may be locked out
-	// precisely because someone else holds a session. Revoke them all. DEF-006.
 	return s.tokens.RevokeAllRefreshTokens(ctx, userID)
 }

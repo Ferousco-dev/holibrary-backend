@@ -55,7 +55,8 @@ func (h *DeviceHandler) Register(w http.ResponseWriter, r *http.Request) {
 // receiving notifications about their books on a machine somebody else is now
 // using.
 func (h *DeviceHandler) Unregister(w http.ResponseWriter, r *http.Request) {
-	if _, ok := middleware.UserID(r.Context()); !ok {
+	userID, ok := middleware.UserID(r.Context())
+	if !ok {
 		response.FromError(w, domain.ErrUnauthenticated)
 		return
 	}
@@ -64,7 +65,9 @@ func (h *DeviceHandler) Unregister(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if err := h.outbox.RevokeDeviceToken(r.Context(), req.Token); err != nil {
+	// Scoped to the caller: matching on the token alone let anyone who learned
+	// another member's token switch off that member's notifications. DEF-018.
+	if err := h.outbox.RevokeOwnDeviceToken(r.Context(), userID, req.Token); err != nil {
 		response.FromError(w, err)
 		return
 	}

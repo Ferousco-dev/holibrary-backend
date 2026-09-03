@@ -15,6 +15,7 @@ var (
 	ErrPasswordTooWeak    = errors.New("password does not meet the minimum policy")
 	ErrTokenInvalid       = errors.New("token is invalid or has expired")
 	ErrMustChangePassword = errors.New("password change required before continuing")
+	ErrRateLimited        = errors.New("too many attempts")
 
 	// Lookup.
 	ErrNotFound = errors.New("not found")

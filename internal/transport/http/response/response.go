@@ -85,6 +85,8 @@ var errorMap = []struct {
 		"This membership is not active. Please speak to the library desk."},
 	{domain.ErrMustChangePassword, http.StatusForbidden, "MUST_CHANGE_PASSWORD",
 		"You must change your password before continuing."},
+	{domain.ErrRateLimited, http.StatusTooManyRequests, "RATE_LIMITED",
+		"Too many attempts. Please wait a minute and try again."},
 	{domain.ErrNotFound, http.StatusNotFound, "NOT_FOUND",
 		"We could not find that."},
 	{domain.ErrDuplicateAccession, http.StatusConflict, "DUPLICATE_ACCESSION",

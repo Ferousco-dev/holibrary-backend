@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
 )
 
 // OutboxRepo implements the transactional outbox.
@@ -160,11 +162,37 @@ func (r *OutboxRepo) DeviceTokens(ctx context.Context, userID uuid.UUID) ([]stri
 
 // RevokeDeviceToken retires a registration FCM has rejected as permanently
 // invalid, so a dead device is not retried forever.
+//
+// Used by the worker, which acts on FCM's verdict rather than on a user's
+// request. User-initiated sign-out goes through RevokeOwnDeviceToken.
 func (r *OutboxRepo) RevokeDeviceToken(ctx context.Context, token string) error {
 	_, err := r.db.Exec(ctx,
 		`UPDATE device_tokens SET revoked_at = now() WHERE token = $1 AND revoked_at IS NULL`,
 		token)
 	return translate(err)
+}
+
+// RevokeOwnDeviceToken retires a registration on sign-out.
+//
+// The owner is part of the WHERE clause, not a check performed beforehand. The
+// unregister endpoint previously matched on the token alone, so anyone who
+// learned another member's FCM token -- from a shared browser profile, a log,
+// or client storage -- could silently switch off that member's due-date
+// reminders from their own account. DEF-018.
+func (r *OutboxRepo) RevokeOwnDeviceToken(ctx context.Context, userID uuid.UUID, token string) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE device_tokens SET revoked_at = now()
+		 WHERE user_id = $1 AND token = $2 AND revoked_at IS NULL`, userID, token)
+	if err != nil {
+		return translate(err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Either no such registration, or it belongs to somebody else. The two
+		// are deliberately indistinguishable: a distinct reply would confirm
+		// that a guessed token is real and in use.
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 // RegisterDevice records a push registration.

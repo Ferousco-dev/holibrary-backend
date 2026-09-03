@@ -27,6 +27,12 @@ type Config struct {
 
 	CORSOrigins []string
 
+	// TrustProxyHeaders says whether CF-Connecting-IP and X-Forwarded-For may
+	// be believed for rate limiting. Anyone talking to the service directly can
+	// forge them, so this defaults to false and must be switched on explicitly
+	// once the deployment guarantees a proxy rewrites them (DEF-019).
+	TrustProxyHeaders bool
+
 	ResendAPIKey string
 	MailFrom     string
 
@@ -72,6 +78,8 @@ func Load() (Config, error) {
 			c.CORSOrigins = append(c.CORSOrigins, o)
 		}
 	}
+
+	c.TrustProxyHeaders = os.Getenv("TRUST_PROXY_HEADERS") == "true"
 
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")

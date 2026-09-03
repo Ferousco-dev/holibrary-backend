@@ -305,9 +305,17 @@ CREATE UNIQUE INDEX one_active_loan_per_copy
 Even if every line of Go were wrong, Postgres physically cannot store two open loans against
 one copy. This is NFR-009's "enforced by database constraint, not application code alone".
 
-**3. Borrow-limit check inside the same transaction**, with the member row locked
-(`SELECT ... FOR UPDATE`), so a member cannot exceed their category limit (REQ-043) by firing
-concurrent requests.
+**3. Borrow-limit check while holding a row lock on the member.**
+```sql
+SELECT id FROM users WHERE id = $1 FOR UPDATE;   -- then count, then insert
+```
+Being "inside a transaction" is **not sufficient** here, and this document
+previously claimed it was. Two librarians lending to the same member each claim a
+*different* copy, so the copy-level compare-and-swap never collides; both then
+count the member's open loans before either has inserted its own row, both see
+the same number, and both pass. Measured: 5 simultaneous borrows against a limit
+of 2 produced 3 loans. The lock serialises the second transaction behind the
+first, so the count it reads includes the first loan (REQ-043, DEF-014).
 
 All three run in one transaction. It commits or none of it happened.
 
@@ -320,7 +328,9 @@ All three run in one transaction. It commits or none of it happened.
 | Password storage | Argon2id, per-password salt, tuned cost | NFR-002 |
 | Sessions | JWT access token 15 min; opaque refresh token 7 days, **hash stored**, revocable | NFR-003, REQ-006 |
 | Authorisation | Middleware resolves role from token; every protected route declares its required role. Ownership checks in the service layer — a member reads only their own loans | NFR-004, REQ-062 |
-| Brute force | Redis fixed-window rate limit, 5 attempts/min/IP on auth routes | NFR-005 |
+| Brute force | Two limits: **5/min per account** (precise; an attacker cannot change the account they are attacking) and 120/min per network (coarse; a campus NAT is shared). Redis-backed, so limits survive a restart. Proxy headers are trusted only when explicitly configured, because anyone reaching the origin directly can forge them (DEF-019). | NFR-005 |
+| Session invalidation | `users.tokens_invalid_before`, stamped in the same statement as the new password hash. Revoking tokens as a separate step left a window for a concurrent refresh to mint a surviving session (DEF-015). | I-14 |
+| Enumeration by timing | The no-such-account path runs the same Argon2 computation as a real verification. Matching error text is not enough when one branch is 11 ms slower (DEF-017). | DOM-009 |
 | Injection | `pgx` parameterised queries throughout. No string-built SQL anywhere | NFR-008 |
 | Transport | HTTPS terminated at Cloudflare; HSTS; HTTP redirected | NFR-006 |
 | Input | Every request body validated before it reaches a service | NFR-007 |

@@ -26,7 +26,7 @@ func NewReservationRepo(db *pgxpool.Pool) *ReservationRepo { return &Reservation
 // that another request could change underneath it: a copy becoming available
 // between the availability check and the insert would leave a member queued for
 // a book already back on the shelf.
-func (r *ReservationRepo) Create(ctx context.Context, bookID, userID uuid.UUID, hold time.Duration) (domain.Reservation, error) {
+func (r *ReservationRepo) Create(ctx context.Context, bookID, userID uuid.UUID, _ time.Duration) (domain.Reservation, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return domain.Reservation{}, translate(err)
@@ -69,8 +69,12 @@ func (r *ReservationRepo) Create(ctx context.Context, bookID, userID uuid.UUID, 
 	var res domain.Reservation
 	err = tx.QueryRow(ctx, `
 		WITH inserted AS (
-		    INSERT INTO reservations (book_id, user_id, expires_at)
-		    VALUES ($1, $2, now() + $3::interval)
+		    -- No expiry while merely waiting in line. The hold period is a
+		    -- deadline for collecting a book that is ready, not a limit on how
+		    -- long a member may wait for a popular title. PromoteNext sets
+		    -- expires_at when a copy is actually held. DEF-016.
+		    INSERT INTO reservations (book_id, user_id)
+		    VALUES ($1, $2)
 		    RETURNING id, book_id, user_id, status, created_at, expires_at
 		)
 		SELECT i.id, i.book_id, i.user_id, i.status, i.created_at, i.expires_at,
@@ -78,7 +82,7 @@ func (r *ReservationRepo) Create(ctx context.Context, bookID, userID uuid.UUID, 
 		         WHERE q.book_id = i.book_id AND q.status = 'pending'
 		           AND q.created_at < i.created_at)
 		  FROM inserted i`,
-		bookID, userID, hold.String()).Scan(
+		bookID, userID).Scan(
 		&res.ID, &res.BookID, &res.UserID, &res.Status, &res.CreatedAt,
 		&res.ExpiresAt, &res.QueuePos)
 	if err != nil {
@@ -176,9 +180,13 @@ func (r *ReservationRepo) PromoteNext(ctx context.Context, bookID uuid.UUID, hol
 // ExpireStale releases reservations nobody came to collect, so one member who
 // never turns up does not block the queue for everyone behind them (REQ-059).
 func (r *ReservationRepo) ExpireStale(ctx context.Context) (int, error) {
+	// Only a held copy can go uncollected. A pending reservation has no expiry
+	// and must never age out of the queue: the member has not been offered
+	// anything yet, so there is nothing for them to have failed to collect.
+	// DEF-016.
 	tag, err := r.db.Exec(ctx, `
 		UPDATE reservations SET status = 'expired'
-		 WHERE status IN ('pending','ready') AND expires_at < now()`)
+		 WHERE status = 'ready' AND expires_at < now()`)
 	if err != nil {
 		return 0, translate(err)
 	}

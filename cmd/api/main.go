@@ -26,6 +26,7 @@ import (
 	"github.com/Ferousco-dev/holibrary-backend/internal/config"
 	"github.com/Ferousco-dev/holibrary-backend/internal/notify"
 	"github.com/Ferousco-dev/holibrary-backend/internal/queue"
+	"github.com/Ferousco-dev/holibrary-backend/internal/ratelimit"
 	"github.com/Ferousco-dev/holibrary-backend/internal/repository/postgres"
 	"github.com/Ferousco-dev/holibrary-backend/internal/service"
 	transport "github.com/Ferousco-dev/holibrary-backend/internal/transport/http"
@@ -119,9 +120,37 @@ func run() error {
 	reservations := postgres.NewReservationRepo(db)
 	audit := postgres.NewAuditRepo(db)
 
+	// Rate limiting. Redis keeps the counters outside the process, so a limit
+	// survives a restart and holds across instances. An in-process fallback
+	// keeps development working and degrades a Redis outage rather than the
+	// service (DEF-019).
+	var limiter ratelimit.Limiter
+	if cfg.RedisURL != "" {
+		if r, err := ratelimit.NewRedis(cfg.RedisURL); err != nil {
+			slog.Error("could not parse REDIS_URL; falling back to an in-process limiter",
+				"error", err)
+			limiter = ratelimit.NewMemory()
+		} else if err := r.Ping(ctx); err != nil {
+			slog.Error("Redis unreachable; falling back to an in-process limiter",
+				"error", err)
+			limiter = ratelimit.NewMemory()
+		} else {
+			defer r.Close()
+			limiter = r
+			slog.Info("rate limiting backed by Redis")
+		}
+	} else {
+		slog.Warn("no REDIS_URL; rate limits are in-process and reset on restart")
+		limiter = ratelimit.NewMemory()
+	}
+
+	if cfg.TrustProxyHeaders {
+		slog.Info("trusting proxy headers for client address; ensure the origin is not directly reachable")
+	}
+
 	// Services.
 	issuer := auth.NewTokenIssuer(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
-	authService := service.NewAuthService(users, tokens, outbox, issuer)
+	authService := service.NewAuthService(users, tokens, outbox, issuer, limiter)
 	catalogueService := service.NewCatalogueService(catalogue)
 	circulationService := service.NewCirculationService(circulation, users, outbox)
 	memberService := service.NewMemberService(users, outbox)
@@ -141,8 +170,10 @@ func run() error {
 		Admin:        handler.NewAdminHandler(circulationService, audit),
 		Ping:         func() error { return db.Ping(ctx) },
 	}, transport.Options{
-		Issuer:      issuer,
-		CORSOrigins: cfg.CORSOrigins,
+		Issuer:            issuer,
+		CORSOrigins:       cfg.CORSOrigins,
+		Limiter:           limiter,
+		TrustProxyHeaders: cfg.TrustProxyHeaders,
 	})
 
 	// Notification delivery runs beside the server, never on a request. A

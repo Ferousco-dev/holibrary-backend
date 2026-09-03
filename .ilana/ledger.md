@@ -312,3 +312,39 @@ TC-076 giving exactly one loan from 20 simultaneous requests.
 Caveat: criterion 5 partial. Requirements for unbuilt features have no test
 cases. Narrowing the SRS to what is finished would make the gate worthless.
 Decision: advance to phase 06 Configuration Management.
+
+## 2026-09-03 | 05 | verifier | ADVERSARIAL SECURITY AUDIT
+An external audit was run against the repository with one overriding
+instruction: distrust the documentation and verify every claimed security
+property against the code. Six defects, two of them Critical. All reproduced,
+all fixed, all re-verified against the running stack.
+
+  DEF-014 CRITICAL the borrowing limit could be exceeded by concurrent requests.
+          Counting inside a transaction is not serialisation: competing borrows
+          claim different copies so they never collide, and each counts before
+          the other has inserted. Reproduced: 5 simultaneous borrows against a
+          limit of 2 gave 3 loans. Fixed with a row lock on the borrower; the
+          same race now yields exactly 2.
+  DEF-015 CRITICAL a password change could be raced. UpdatePassword and
+          RevokeAllRefreshTokens were separate statements, so a concurrent
+          refresh could mint a surviving session in the gap. Fixed with a
+          tokens_invalid_before stamp written in the same statement as the hash.
+  DEF-016 HIGH     pending reservations expired after three days without ever
+          being offered a copy. The hold period is a collection deadline, not a
+          limit on waiting. Fixed.
+  DEF-018 HIGH     any authenticated user could unregister another user's device
+          token and silence their notifications. Fixed with an ownership
+          condition in the query.
+  DEF-019 HIGH     rate limiting was IP-only, in-process, and trusted forgeable
+          proxy headers. Replaced with per-account limits in Redis plus a
+          generous per-network limit, and proxy headers now trusted only when
+          explicitly configured.
+  DEF-017 MEDIUM   login leaked account existence by timing. Fixed with a dummy
+          Argon2 verification on the miss path; measured ratio now 1.10.
+
+The most important finding is not any single defect. Three documents -
+README.md, docs/design.md and docs/SYSTEM_INVARIANTS.md - asserted a
+SELECT ... FOR UPDATE lock that had never been written. The documentation was
+part of the defect, and a reviewer who trusted it would have confirmed the bug
+rather than found it. All three have been corrected, with the error left on the
+record rather than quietly deleted.

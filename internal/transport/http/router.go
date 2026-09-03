@@ -3,9 +3,9 @@ package http
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
+	"github.com/Ferousco-dev/holibrary-backend/internal/ratelimit"
 	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/docs"
 	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/handler"
 	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/middleware"
@@ -27,6 +27,11 @@ type Handlers struct {
 type Options struct {
 	Issuer      *auth.TokenIssuer
 	CORSOrigins []string
+	Limiter     ratelimit.Limiter
+	// TrustProxyHeaders says whether CF-Connecting-IP and X-Forwarded-For may be
+	// believed. False unless the deployment guarantees every request passes
+	// through a proxy that rewrites them (DEF-019).
+	TrustProxyHeaders bool
 }
 
 // NewRouter builds the route table.
@@ -40,9 +45,10 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 
 	authenticate := middleware.Authenticate(opts.Issuer)
 
-	// Guessing passwords is only practical if guesses are cheap, so the
-	// credential endpoints are throttled per client IP (NFR-005).
-	throttle := middleware.RateLimit(5, time.Minute)
+	// Coarse per-network throttle. The precise per-account limit that actually
+	// stops password guessing lives in the authentication service, because only
+	// it knows which account is being attacked (NFR-005, DEF-019).
+	throttle := middleware.RateLimit(opts.Limiter, ratelimit.PerIPAuth, opts.TrustProxyHeaders)
 
 	// ---- public: no token required ----------------------------------------
 

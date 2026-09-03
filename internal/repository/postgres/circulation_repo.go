@@ -101,7 +101,23 @@ func (r *CirculationRepo) Borrow(ctx context.Context, p BorrowParams) (domain.Lo
 		return domain.Loan{}, domain.ErrLastCopyRetained
 	}
 
-	// Step 3: the member's limit, counted inside the transaction.
+	// Step 3: the member's limit.
+	//
+	// The count must be serialised per borrower, not merely wrapped in a
+	// transaction. Two librarians lending to the same member at the same instant
+	// each claimed a different copy -- so the copy-level compare-and-swap did not
+	// collide -- and then each counted the member's open loans BEFORE either had
+	// inserted its own row. Both saw the same number, both passed, and the member
+	// ended up over their limit. Measured: 5 simultaneous borrows against a limit
+	// of 2 produced 3 loans.
+	//
+	// Locking the member's row makes the second transaction wait until the first
+	// has committed its loan, so the count it reads includes that loan. The lock
+	// is taken before the count and held to commit. DEF-014.
+	if _, err := tx.Exec(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, p.UserID); err != nil {
+		return domain.Loan{}, translate(err)
+	}
+
 	active, err := CountActiveLoans(ctx, tx, p.UserID)
 	if err != nil {
 		return domain.Loan{}, err

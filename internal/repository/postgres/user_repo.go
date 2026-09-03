@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -162,11 +163,25 @@ func (r *UserRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain
 	return nil
 }
 
-// UpdatePassword stores a new hash and clears the first-login flag, so the
-// forced password change (REQ-007) resolves itself once the member complies.
+// UpdatePassword stores a new hash, clears the first-login flag, and invalidates
+// every session issued before this moment.
+//
+// The three happen in one statement on purpose. Revoking refresh tokens as a
+// separate step left a window: a concurrent /auth/refresh could consume an old
+// token and mint a new one between the password update and the revocation,
+// leaving an attacker with a live session after the victim had changed their
+// password precisely to end it.
+//
+// tokens_invalid_before closes that window without needing to revoke anything.
+// A token is invalid by comparison with a timestamp that was written in the same
+// statement as the new hash, so there is no gap to race. DEF-015.
 func (r *UserRepo) UpdatePassword(ctx context.Context, id uuid.UUID, hash string) error {
 	const q = `UPDATE users
-	              SET password_hash = $2, must_change_password = false, updated_at = now()
+	              SET password_hash = $2,
+	                  must_change_password = false,
+	                  tokens_invalid_before = now(),
+	                  password_changed_at = now(),
+	                  updated_at = now()
 	            WHERE id = $1`
 	tag, err := r.db.Exec(ctx, q, id, hash)
 	if err != nil {
@@ -183,6 +198,15 @@ func (r *UserRepo) PasswordHash(ctx context.Context, id uuid.UUID) (string, erro
 	var hash string
 	err := r.db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, id).Scan(&hash)
 	return hash, translate(err)
+}
+
+// TokensInvalidBefore returns the instant before which every session for this
+// account is void.
+func (r *UserRepo) TokensInvalidBefore(ctx context.Context, id uuid.UUID) (time.Time, error) {
+	var t time.Time
+	err := r.db.QueryRow(ctx,
+		`SELECT tokens_invalid_before FROM users WHERE id = $1`, id).Scan(&t)
+	return t, translate(err)
 }
 
 // CountActiveLoans is used by the borrowing-limit check. It takes a pgx.Tx

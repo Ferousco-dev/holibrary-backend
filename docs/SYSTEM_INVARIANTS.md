@@ -24,7 +24,7 @@ believes one physical book is simultaneously with two students.
 |---|---|
 | **Database** | `CREATE UNIQUE INDEX one_active_loan_per_copy ON loans (copy_id) WHERE returned_at IS NULL` |
 | **Database** | Atomic claim: `UPDATE copies SET status='on_loan' WHERE id=$1 AND status='available' AND loan_policy='circulating' RETURNING id` — zero rows means the caller lost the race |
-| **Service** | Both statements plus the limit check in one transaction |
+| **Service** | Both statements plus the limit check in one transaction, **with a row lock on the borrower** (`SELECT ... FOR UPDATE`). A transaction alone is not enough: competing borrows claim different copies, so they never collide, and each would count the other's uncommitted loan as absent (DEF-014). |
 | **Test** | 20 concurrent borrows of one copy → 1 × 201, 19 × 409, exactly 1 loan row |
 
 There is **no window** between checking availability and taking it, because
@@ -189,8 +189,16 @@ against an attacker who already held one.
 
 | Layer | Mechanism |
 |---|---|
-| **Service** | `RevokeAllRefreshTokens` on both change and reset |
+| **Database** | `users.tokens_invalid_before`, stamped in the **same statement** as the new password hash. Every session issued before that instant is void by comparison. |
+| **Service** | Refresh checks the stamp after consuming a token |
+| **Service** | `RevokeAllRefreshTokens` as well, so the table does not accumulate unusable rows |
 | **Schema** | Refresh tokens stored **hashed** and rotated on every use |
+
+Revocation on its own was not enough, and this document said it was. The password
+update and the revocation were separate statements, so a concurrent
+`/auth/refresh` could consume an old token and mint a new one in the gap —
+leaving an attacker a live session created by the very act meant to end it. A
+version stamp has no gap to race, because nothing needs revoking (DEF-015).
 
 ## I-15 · A temporary password is not a working credential
 
@@ -227,5 +235,12 @@ of what a named student reads.
    proves nothing about an invariant.
 3. **Concurrency assumed.** Every invariant is written as though two requests
    arrive at the same instant, because during a defence demo they will.
-4. **Recorded when broken.** Five defects have violated one of these and been
-   fixed: DEF-002 and DEF-004 through DEF-009 in `.ilana/defects.md`.
+4. **Recorded when broken.** Nineteen defects have been found and
+   fixed, several of which violated an invariant this document asserted. See
+   `.ilana/defects.md`.
+
+5. **The document is not the enforcement.** Three claims in earlier versions of
+   this file described mechanisms the code did not contain. They were found by an
+   adversarial audit instructed to distrust the documentation and verify against
+   the code, which is the only way that class of error is ever found. An
+   invariant is worth exactly as much as the constraint that enforces it.
