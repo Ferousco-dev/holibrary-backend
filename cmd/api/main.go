@@ -74,6 +74,7 @@ func run() error {
 	catalogue := postgres.NewCatalogueRepo(db)
 	circulation := postgres.NewCirculationRepo(db)
 	outbox := postgres.NewOutboxRepo(db)
+	reservations := postgres.NewReservationRepo(db)
 	audit := postgres.NewAuditRepo(db)
 
 	// Services.
@@ -82,14 +83,20 @@ func run() error {
 	catalogueService := service.NewCatalogueService(catalogue)
 	circulationService := service.NewCirculationService(circulation, users, outbox)
 	memberService := service.NewMemberService(users, outbox)
+	reservationService := service.NewReservationService(reservations, outbox)
+
+	// A returned copy advances the queue for its title. Wired here rather than
+	// as a constructor argument so neither service has to import the other.
+	circulationService.SetReturnHook(reservationService)
 
 	router := transport.NewRouter(transport.Handlers{
-		Auth:        handler.NewAuthHandler(authService),
-		Catalogue:   handler.NewCatalogueHandler(catalogueService),
-		Circulation: handler.NewCirculationHandler(circulationService),
-		Members:     handler.NewMemberHandler(memberService, circulationService),
-		Admin:       handler.NewAdminHandler(circulationService, audit),
-		Ping:        func() error { return db.Ping(ctx) },
+		Auth:         handler.NewAuthHandler(authService),
+		Catalogue:    handler.NewCatalogueHandler(catalogueService),
+		Circulation:  handler.NewCirculationHandler(circulationService),
+		Members:      handler.NewMemberHandler(memberService, circulationService),
+		Reservations: handler.NewReservationHandler(reservationService),
+		Admin:        handler.NewAdminHandler(circulationService, audit),
+		Ping:         func() error { return db.Ping(ctx) },
 	}, transport.Options{
 		Issuer:      issuer,
 		CORSOrigins: cfg.CORSOrigins,

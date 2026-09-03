@@ -593,6 +593,90 @@ paths:
                     items: { $ref: '#/components/schemas/Loan' }
         "401": { $ref: '#/components/responses/Unauthenticated' }
 
+  /me/reservations:
+    get:
+      tags: [My account]
+      summary: Your place in each queue
+      description: |
+        Open reservations only. `queue_position` is **computed at read time** — a
+        stored position would go stale the moment anyone ahead of you cancelled.
+      responses:
+        "200":
+          description: Your reservations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Reservation' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+
+  /reservations:
+    post:
+      tags: [My account]
+      summary: Join the queue for a title
+      description: |
+        Members place their **own** reservations — the member comes from the
+        token, never from the body. Unlike borrowing, joining a queue commits
+        nothing physical, so there is no reason to walk to the library to do it.
+
+        Refused when:
+
+        * **a copy is on the shelf** (`COPIES_AVAILABLE`) — you would be told to
+          wait for a book the library has;
+        * **nothing about the title is reservable** (`NOT_RESERVABLE`) —
+          reference and restricted volumes never leave the building, so there is
+          no queue to join;
+        * **you are already queued** for it (`ALREADY_RESERVED`).
+
+        When a copy is returned the member at the head of the queue is marked
+        `ready` and notified by push and email, and has **3 days** to collect it
+        before the hold passes to the next person.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [book_id]
+              properties:
+                book_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Reservation' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "409":
+          description: "`COPIES_AVAILABLE` or `ALREADY_RESERVED`."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "422":
+          description: The title cannot be reserved (`NOT_RESERVABLE`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /reservations/{id}:
+    delete:
+      tags: [My account]
+      summary: Give up your place in a queue
+      description: |
+        Ownership is part of the query rather than a check afterwards, so
+        guessing another member's reservation id achieves nothing.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
   /members:
     get:
       tags: [Members]
@@ -1092,6 +1176,27 @@ components:
               status: { type: string, enum: [valid, created, duplicate, invalid] }
               detail: { type: string }
               temporary_password: { type: string, description: Present only for rows actually created. }
+
+    Reservation:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        book_id: { type: string, format: uuid }
+        book_title: { type: string }
+        status:
+          type: string
+          enum: [pending, ready, fulfilled, cancelled, expired]
+          description: |
+            `pending` — waiting. `ready` — a copy is being held for you.
+        queue_position:
+          type: integer
+          description: Computed on read; 1 means you are next.
+          example: 2
+        created_at: { type: string, format: date-time }
+        expires_at:
+          type: string
+          format: date-time
+          description: When a `ready` hold passes to the next member.
 
     AuditEntry:
       type: object

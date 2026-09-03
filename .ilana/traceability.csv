@@ -62,11 +62,11 @@ REQ-051,The system shall reject a return for a loan that is already closed.,func
 REQ-052,The system shall identify loans whose due date has passed and which are unreturned.,functional,DES-002,internal/repository/postgres/circulation_repo.go,,implemented
 REQ-053,"Overdue status shall be **computed**, not stored, so it cannot go stale.",functional,DES-002,internal/domain/domain.go,,implemented
 REQ-054,"A librarian shall list all overdue loans, filterable by member and by book.",functional,DES-002,,,specified
-REQ-055,"A member shall reserve a book whose copies are all on loan, or which is on display.",functional,DES-002,,,specified
-REQ-056,Reservations shall be queued in order of request.,functional,DES-002,,,specified
-REQ-057,A member shall view and cancel their own reservations.,functional,DES-002,,,specified
-REQ-058,"When a copy becomes available, the system shall notify the member at the head of the queue.",functional,DES-002,,,specified
-REQ-059,An unclaimed reservation shall expire after a configurable period and pass to the next in queue.,functional,DES-002,,,specified
+REQ-055,"A member shall reserve a book whose copies are all on loan, or which is on display.",functional,DES-002,internal/service/reservation_service.go,,implemented
+REQ-056,Reservations shall be queued in order of request.,functional,DES-002,internal/repository/postgres/reservation_repo.go,,implemented
+REQ-057,A member shall view and cancel their own reservations.,functional,DES-002,internal/transport/http/handler/reservation_handler.go,,implemented
+REQ-058,"When a copy becomes available, the system shall notify the member at the head of the queue.",functional,DES-002,internal/service/reservation_service.go,,implemented
+REQ-059,An unclaimed reservation shall expire after a configurable period and pass to the next in queue.,functional,DES-002,internal/repository/postgres/reservation_repo.go,,implemented
 REQ-060,"A member shall view the books they currently hold, with due dates.",functional,DES-001,internal/service/circulation_service.go,,implemented
 REQ-061,A member shall view their own complete borrowing history.,functional,DES-001,internal/service/circulation_service.go,,implemented
 REQ-062,A member shall not view any other member's history. (DOM-009),functional,DES-001,router.go (/me routes),,implemented
@@ -93,7 +93,7 @@ NFR-008,Injection resistance: Parameterised queries exclusively. No string-conca
 NFR-009,"Data integrity: `available_copies` shall never be negative and loans shall never exceed total copies. Enforced by database constraint and transaction, not application code alone.",non-functional,DES-006,migrations/0001_init.sql,,implemented
 NFR-010,"Logging: Structured logs. No passwords, tokens or member personal data written to logs. (DOM-009)",non-functional,DES-009,,,specified
 NFR-011,Container size: Final Docker image under 50 MB via multi-stage build on a distroless or scratch base,non-functional,DES-009,Dockerfile,,implemented
-NFR-012,Test coverage: At least 70% statement coverage on business-logic packages,non-functional,DES-009,,,specified
+NFR-012,Test coverage: At least 70% statement coverage on business-logic packages,non-functional,DES-009,CI coverage gate,,implemented
 NFR-013,"Continuous integration: Every push runs build, vet, lint and the full test suite. A red build blocks merge.",non-functional,DES-009,.github/workflows/ci.yml,,implemented
 NFR-014,"API documentation: Every endpoint documented in OpenAPI 3 with request, response and error shapes",non-functional,DES-009,internal/transport/http/docs/openapi.yaml,,implemented
 NFR-015,Secret management: All secrets supplied by environment variable. No credential committed to version control.,non-functional,DES-009,,,specified

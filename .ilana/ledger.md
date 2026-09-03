@@ -186,3 +186,31 @@ reset tokens, search terms and member names (NFR-010, DOM-009).
 DEC-017 recorded: Firebase serves FCM push only. Crashlytics and Performance
 Monitoring are client-side products with no Go server SDK and cannot observe
 this API. Stated so the defence answer is accurate rather than aspirational.
+
+## 2026-09-03 | 04 | constructor | REQ-055..059 RESERVATIONS
+Queue for titles that cannot be borrowed now. Members place their own
+reservations; unlike borrowing, joining a queue commits nothing physical.
+
+Refused when a copy is on the shelf (COPIES_AVAILABLE), when nothing about the
+title is reservable (NOT_RESERVABLE), and when the member is already queued
+(ALREADY_RESERVED, enforced by a partial unique index).
+
+Queue position is computed on read, never stored: a stored position is wrong the
+moment anyone ahead cancels. PromoteNext uses FOR UPDATE SKIP LOCKED so two
+returns processed at once cannot promote the same member twice or skip anybody.
+A return advances the queue after the return commits, and a queue failure is
+logged rather than propagated: the book has physically come back and the record
+must say so whatever the queue does.
+
+Verified end to end: position 1 on create, ALREADY_RESERVED on a repeat,
+COPIES_AVAILABLE for a title on the shelf, NOT_RESERVABLE for the reference
+dictionary, promotion to 'ready' on return with push and email queued, and a
+second member's DELETE returning 404 with the row surviving as pending.
+
+## 2026-09-03 | 05 | verifier | NFR-012 COVERAGE GATE MET
+domain 96.7%, service 78.6%, auth 83.8%. CI fails below 70% so it cannot
+regress silently. The authentication service went from zero tests to twenty,
+asserting security properties rather than happy paths: that an unknown account
+and a wrong password are indistinguishable, that a suspended member can neither
+sign in nor refresh, that refresh tokens are stored hashed and rotated, and that
+changing or resetting a password ends every other session.

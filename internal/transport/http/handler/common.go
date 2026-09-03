@@ -15,6 +15,9 @@ import (
 	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/response"
 )
 
+// timeFormat is RFC 3339 in UTC, the only timestamp format this API emits.
+const timeFormat = "2006-01-02T15:04:05Z"
+
 // maxBodyBytes caps a request body. Without it, a single large upload could
 // exhaust the memory of a small container.
 const maxBodyBytes = 1 << 20 // 1 MiB

@@ -13,12 +13,13 @@ import (
 
 // Handlers collects everything the router needs.
 type Handlers struct {
-	Auth        *handler.AuthHandler
-	Catalogue   *handler.CatalogueHandler
-	Circulation *handler.CirculationHandler
-	Members     *handler.MemberHandler
-	Admin       *handler.AdminHandler
-	Ping        func() error
+	Auth         *handler.AuthHandler
+	Catalogue    *handler.CatalogueHandler
+	Circulation  *handler.CirculationHandler
+	Members      *handler.MemberHandler
+	Reservations *handler.ReservationHandler
+	Admin        *handler.AdminHandler
+	Ping         func() error
 }
 
 // Options carries router configuration.
@@ -75,6 +76,13 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	// another's borrowing history (REQ-062, DOM-009).
 	mux.Handle("GET /api/v1/me/loans", authenticate(http.HandlerFunc(h.Circulation.MyLoans)))
 	mux.Handle("GET /api/v1/me/history", authenticate(http.HandlerFunc(h.Circulation.MyHistory)))
+
+	// Members place their own reservations. Unlike borrowing, joining a queue
+	// commits nothing physical, so there is no reason to make someone walk to
+	// the library to do it (REQ-055..057).
+	mux.Handle("GET /api/v1/me/reservations", authenticate(http.HandlerFunc(h.Reservations.List)))
+	mux.Handle("POST /api/v1/reservations", authenticate(http.HandlerFunc(h.Reservations.Create)))
+	mux.Handle("DELETE /api/v1/reservations/{id}", authenticate(http.HandlerFunc(h.Reservations.Cancel)))
 
 	// ---- librarian: manages the collection and the desk ---------------------
 

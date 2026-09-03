@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,10 +26,18 @@ type MemberLookup interface {
 	FindByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 }
 
+// ReturnHook is notified when a copy comes back, so the reservation queue can
+// advance. It is an interface rather than a direct dependency to keep
+// circulation from importing reservations and vice versa.
+type ReturnHook interface {
+	OnCopyReturned(ctx context.Context, copyID uuid.UUID) (bool, error)
+}
+
 type CirculationService struct {
-	loans    CirculationStore
-	members  MemberLookup
-	notifier Notifier
+	loans      CirculationStore
+	members    MemberLookup
+	notifier   Notifier
+	returnHook ReturnHook
 	// now is injectable so the overdue rules can be tested at a fixed instant.
 	// It returns UTC: every timestamp this service stores or compares is UTC,
 	// and Africa/Lagos exists only at the point of display.
@@ -91,11 +100,27 @@ func (s *CirculationService) Borrow(ctx context.Context, copyID, memberID, libra
 	return loan, nil
 }
 
+// SetReturnHook attaches the reservation queue. Optional: circulation works
+// without it, which is what keeps the two services independently testable.
+func (s *CirculationService) SetReturnHook(h ReturnHook) { s.returnHook = h }
+
 // Return records a copy coming back and frees it for the next reader.
+//
+// If somebody is queued for the title they are promoted and notified. That
+// happens after the return is committed and its failure is not propagated: the
+// book has physically come back and the record must reflect that, whatever the
+// queue does (REQ-058).
 func (s *CirculationService) Return(ctx context.Context, loanID, librarianID uuid.UUID) (domain.Loan, error) {
 	loan, err := s.loans.Return(ctx, loanID, librarianID)
 	if err != nil {
 		return domain.Loan{}, err
+	}
+
+	if s.returnHook != nil {
+		if _, err := s.returnHook.OnCopyReturned(ctx, loan.CopyID); err != nil {
+			slog.Warn("could not advance the reservation queue",
+				"copy_id", loan.CopyID, "error", err)
+		}
 	}
 	return loan, nil
 }
