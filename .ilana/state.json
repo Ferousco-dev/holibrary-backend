@@ -3,9 +3,9 @@
   "course": "SEN 106 / SEN 216 - Introduction to Web Technologies",
   "institution": "Obafemi Awolowo University, Ile-Ife",
   "mode": "AUDIT",
-  "phase": "06",
-  "gate": "G5",
-  "agent": "configuration-engineer",
+  "phase": "07",
+  "gate": "G6",
+  "agent": "quality-auditor",
   "process_style": "hybrid",
   "rigour": 4,
   "stack": {
@@ -48,7 +48,8 @@
     "G1": 1,
     "G2": 1,
     "G4": 1,
-    "G5": 1
+    "G5": 1,
+    "G6": 1
   },
   "deployment": {
     "api": "https://api.library.appmd.dev",
