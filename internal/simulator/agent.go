@@ -150,6 +150,15 @@ func (a *Agent) call(ctx context.Context, method, path string, body, out any, to
 		return 0, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Identify the client rather than relying on Go's default user-agent.
+	//
+	// The deployed API sits behind Cloudflare, which blocks some scripting
+	// user-agents outright: Python-urllib is refused with a 403 while the
+	// service itself answers perfectly well. Go's default happens to be allowed
+	// today, which is luck rather than a guarantee. A named agent is also the
+	// courteous thing when the traffic is automated, and it makes the
+	// simulator's requests obvious in an access log.
+	req.Header.Set("User-Agent", "HOLibrary-Simulator/1.0 (synthetic monitoring)")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
