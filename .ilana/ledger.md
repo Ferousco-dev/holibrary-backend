@@ -296,3 +296,19 @@ would have proved nothing.
 
 Also recorded: seven suggested indexes deliberately not added, each with its
 reason, so the omissions read as decisions.
+
+## 2026-09-03 | 05 | verifier | ARTIFACT EMITTED
+docs/test-plan.md, IEEE 829. 105 test cases across the four levels:
+  unit         TC-001..TC-067   85 automated tests, no database or network
+  integration  TC-068..TC-075   contract tests, migrations, EXPLAIN ANALYZE
+  system       TC-076..TC-095   the containerised stack over HTTP
+  acceptance   TC-096..TC-105   library scenarios, walked through at the defence
+Traceability updated: test case identifiers attached to their requirements.
+
+## 2026-09-03 | G5 | verifier | GATE PASS (caveat)
+Evidence: 5 packages passing with -race; coverage 94.7 / 78.7 / 83.8 against a
+70% gate enforced in CI; contract tests 29/29; 13 defects found and closed;
+TC-076 giving exactly one loan from 20 simultaneous requests.
+Caveat: criterion 5 partial. Requirements for unbuilt features have no test
+cases. Narrowing the SRS to what is finished would make the gate worthless.
+Decision: advance to phase 06 Configuration Management.

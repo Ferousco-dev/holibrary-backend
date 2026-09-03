@@ -1,29 +1,29 @@
 req_id,requirement,type,design_id,module,test_ids,status
-DOM-001,"Classification shall use the **Library of Congress Classification** scheme, not Dewey. HOL uses LCC.",domain,DES-005,,,specified
-DOM-002,A call number is shared by all copies of a title; an **accession number is unique to one physical copy**. Three copies of a title share a class number and hold three different accession numbers.,domain,DES-005,,,specified
-DOM-003,"Shelf location shall be derived from the call number's LCC letter: classes **A–J are in the South wing**, classes **K–Z are in the North wing**.",domain,DES-005,,,specified
-DOM-004,"Not every item circulates. Reference, serials, on-display and restricted collections shall not be borrowable.",domain,DES-005,,,specified
+DOM-001,"Classification shall use the **Library of Congress Classification** scheme, not Dewey. HOL uses LCC.",domain,DES-005,,TC-053,specified
+DOM-002,A call number is shared by all copies of a title; an **accession number is unique to one physical copy**. Three copies of a title share a class number and hold three different accession numbers.,domain,DES-005,,TC-097,specified
+DOM-003,"Shelf location shall be derived from the call number's LCC letter: classes **A–J are in the South wing**, classes **K–Z are in the North wing**.",domain,DES-005,,TC-001;TC-002;TC-003;TC-096,specified
+DOM-004,"Not every item circulates. Reference, serials, on-display and restricted collections shall not be borrowable.",domain,DES-005,,TC-004;TC-005;TC-006;TC-057;TC-085;TC-102,specified
 DOM-005,Borrowing privileges shall vary by member category. HOL grants postgraduates and senior staff access that undergraduates do not have.,domain,DES-005,,,specified
-DOM-006,Membership shall originate in person. Users present a university identity card and library card and sign a register. The system shall not offer public self-registration.,domain,DES-005,,,specified
-DOM-007,"The catalogue shall provide **at least three access points — author, title and subject** — mirroring the card catalogue and HOL's OPAC, which searches ""author, title and subject entries, keywords in titles"".",domain,DES-005,,,specified
-DOM-008,"Borrowing history shall be preserved after return. A returned loan is closed, never deleted.",domain,DES-005,,,specified
-DOM-009,Member identity and borrowing history are personal data under Nigerian data protection law. A borrowing history is a reading-habits profile and shall be treated as sensitive.,domain,DES-005,,,specified
-REQ-001,"A member shall log in with their matriculation/staff ID or university email, plus a password.",functional,DES-001,internal/service/auth_service.go,,implemented
+DOM-006,Membership shall originate in person. Users present a university identity card and library card and sign a register. The system shall not offer public self-registration.,domain,DES-005,,TC-098,specified
+DOM-007,"The catalogue shall provide **at least three access points — author, title and subject** — mirroring the card catalogue and HOL's OPAC, which searches ""author, title and subject entries, keywords in titles"".",domain,DES-005,,TC-096,specified
+DOM-008,"Borrowing history shall be preserved after return. A returned loan is closed, never deleted.",domain,DES-005,,TC-090;TC-101,specified
+DOM-009,Member identity and borrowing history are personal data under Nigerian data protection law. A borrowing history is a reading-habits profile and shall be treated as sensitive.,domain,DES-005,,TC-038;TC-046,specified
+REQ-001,"A member shall log in with their matriculation/staff ID or university email, plus a password.",functional,DES-001,internal/service/auth_service.go,TC-037,verified
 REQ-002,The system shall not provide public self-registration. Accounts are created by staff only. (DOM-006),functional,DES-001,router.go (no register route),,implemented
-REQ-003,A user shall change their own password by supplying the current password.,functional,DES-001,internal/service/auth_service.go,,implemented
+REQ-003,A user shall change their own password by supplying the current password.,functional,DES-001,internal/service/auth_service.go,TC-043,verified
 REQ-004,"A user shall request a password reset, delivered as a link to their registered email.",functional,DES-001,internal/service/auth_service.go,,implemented
 REQ-005,A password reset token shall be single-use and expire within 30 minutes.,functional,DES-001,internal/repository/postgres/token_repo.go,,implemented
 REQ-006,"A user shall log out, invalidating their refresh token.",functional,DES-001,internal/service/auth_service.go,,implemented
-REQ-007,A user created by staff shall be required to change their password at first login.,functional,DES-001,internal/transport/http/middleware/middleware.go,,implemented
+REQ-007,A user created by staff shall be required to change their password at first login.,functional,DES-001,internal/transport/http/middleware/middleware.go,TC-029;TC-048;TC-081,verified
 REQ-008,"The system shall assign every account exactly one role: `member`, `librarian` or `admin`.",functional,DES-001,internal/domain/domain.go,,implemented
 REQ-009,"A librarian shall create a member record with name, ID, email and category.",functional,DES-001,internal/service/member_service.go,,implemented
-REQ-010,A librarian shall bulk-import members from a CSV file.,functional,DES-001,internal/service/member_service.go,,implemented
-REQ-011,The CSV import shall report per-row success and failure without aborting the whole batch.,functional,DES-001,internal/service/member_service.go,,implemented
+REQ-010,A librarian shall bulk-import members from a CSV file.,functional,DES-001,internal/service/member_service.go,TC-049;TC-099,verified
+REQ-011,The CSV import shall report per-row success and failure without aborting the whole batch.,functional,DES-001,internal/service/member_service.go,TC-050;TC-051;TC-052,verified
 REQ-012,A librarian shall search and list members.,functional,DES-001,,,specified
 REQ-013,A librarian shall view a member's profile including current loans and full history.,functional,DES-001,,,specified
 REQ-014,A librarian shall update a member record.,functional,DES-001,,,specified
 REQ-015,A librarian shall suspend or reactivate a member. A suspended member cannot borrow.,functional,DES-001,,,specified
-REQ-016,"A librarian shall create a book record: title, author(s), ISBN, publisher, place and year of publication, LCC call number, subject headings, description.",functional,DES-005,,,specified
+REQ-016,"A librarian shall create a book record: title, author(s), ISBN, publisher, place and year of publication, LCC call number, subject headings, description.",functional,DES-005,,TC-054,specified
 REQ-017,A librarian shall import bibliographic data from an external book API by ISBN to pre-fill a new record. (DEC-007),functional,DES-005,,,specified
 REQ-018,Imported data shall be editable before saving; the librarian's entry is authoritative.,functional,DES-005,,,specified
 REQ-019,A librarian shall update a book record.,functional,DES-005,,,specified
@@ -44,30 +44,30 @@ REQ-033,A user shall search by call number.,functional,DES-005,,,specified
 REQ-034,A user shall filter results by LCC category and by availability.,functional,DES-005,,,specified
 REQ-035,Search results shall be paginated.,functional,DES-005,,,specified
 REQ-036,"A user shall view a book's detail page showing bibliographic data, copy counts, availability and shelf location.",functional,DES-005,,,specified
-REQ-037,Search shall be available to unauthenticated visitors; personal data shall not be.,functional,DES-005,,,specified
+REQ-037,Search shall be available to unauthenticated visitors; personal data shall not be.,functional,DES-005,,TC-078,specified
 REQ-038,"The system shall report, per book, the total number of copies, the number available and the number on loan.",functional,DES-005,internal/repository/postgres/catalogue_repo.go,,implemented
 REQ-039,"Availability shall be **derived from copy states**, never stored as a standalone flag.",functional,DES-005,migrations/0001_init.sql,,implemented
 REQ-040,Non-circulating copies shall be reported as held by the library but not available to borrow. (DOM-004),functional,DES-005,,,specified
-REQ-041,A librarian shall record a loan of a specific copy to a specific member.,functional,DES-002,internal/service/circulation_service.go,,implemented
-REQ-042,The system shall compute the due date from the member's category. (DEC-005),functional,DES-002,internal/service/circulation_service.go,,implemented
-REQ-043,The system shall reject a loan that would exceed the member's category limit.,functional,DES-002,internal/repository/postgres/circulation_repo.go,,implemented
-REQ-044,The system shall reject a loan of a non-circulating copy. (DOM-004),functional,DES-002,internal/repository/postgres/circulation_repo.go,,implemented
-REQ-045,The system shall reject a loan to a suspended or inactive member.,functional,DES-002,internal/service/circulation_service.go,,implemented
-REQ-046,The system shall reject a loan of a copy that is not `available`.,functional,DES-002,internal/repository/postgres/circulation_repo.go,,implemented
-REQ-047,Concurrent attempts to lend the same copy shall result in exactly one successful loan.,functional,DES-006,migrations/0001_init.sql (one_active_loan_per_copy),,implemented
-REQ-048,A librarian shall record the return of a borrowed copy.,functional,DES-002,internal/repository/postgres/circulation_repo.go,,implemented
+REQ-041,A librarian shall record a loan of a specific copy to a specific member.,functional,DES-002,internal/service/circulation_service.go,TC-100,verified
+REQ-042,The system shall compute the due date from the member's category. (DEC-005),functional,DES-002,internal/service/circulation_service.go,TC-030,verified
+REQ-043,The system shall reject a loan that would exceed the member's category limit.,functional,DES-002,internal/repository/postgres/circulation_repo.go,TC-032;TC-086,verified
+REQ-044,The system shall reject a loan of a non-circulating copy. (DOM-004),functional,DES-002,internal/repository/postgres/circulation_repo.go,TC-034,verified
+REQ-045,The system shall reject a loan to a suspended or inactive member.,functional,DES-002,internal/service/circulation_service.go,TC-031;TC-039;TC-042,verified
+REQ-046,The system shall reject a loan of a copy that is not `available`.,functional,DES-002,internal/repository/postgres/circulation_repo.go,TC-033,verified
+REQ-047,Concurrent attempts to lend the same copy shall result in exactly one successful loan.,functional,DES-006,migrations/0001_init.sql (one_active_loan_per_copy),TC-076,verified
+REQ-048,A librarian shall record the return of a borrowed copy.,functional,DES-002,internal/repository/postgres/circulation_repo.go,TC-101,verified
 REQ-049,Recording a return shall set the loan's return date and close its status.,functional,DES-002,,,specified
 REQ-050,Recording a return shall restore the copy to `available`.,functional,DES-002,,,specified
-REQ-051,The system shall reject a return for a loan that is already closed.,functional,DES-002,,,specified
-REQ-052,The system shall identify loans whose due date has passed and which are unreturned.,functional,DES-002,internal/repository/postgres/circulation_repo.go,,implemented
-REQ-053,"Overdue status shall be **computed**, not stored, so it cannot go stale.",functional,DES-002,internal/domain/domain.go,,implemented
-REQ-054,"A librarian shall list all overdue loans, filterable by member and by book.",functional,DES-002,,,specified
-REQ-055,"A member shall reserve a book whose copies are all on loan, or which is on display.",functional,DES-002,internal/service/reservation_service.go,,implemented
-REQ-056,Reservations shall be queued in order of request.,functional,DES-002,internal/repository/postgres/reservation_repo.go,,implemented
+REQ-051,The system shall reject a return for a loan that is already closed.,functional,DES-002,,TC-089,specified
+REQ-052,The system shall identify loans whose due date has passed and which are unreturned.,functional,DES-002,internal/repository/postgres/circulation_repo.go,TC-104,verified
+REQ-053,"Overdue status shall be **computed**, not stored, so it cannot go stale.",functional,DES-002,internal/domain/domain.go,TC-009;TC-010;TC-011,verified
+REQ-054,"A librarian shall list all overdue loans, filterable by member and by book.",functional,DES-002,,TC-104,specified
+REQ-055,"A member shall reserve a book whose copies are all on loan, or which is on display.",functional,DES-002,internal/service/reservation_service.go,TC-056;TC-103,verified
+REQ-056,Reservations shall be queued in order of request.,functional,DES-002,internal/repository/postgres/reservation_repo.go,TC-058,verified
 REQ-057,A member shall view and cancel their own reservations.,functional,DES-002,internal/transport/http/handler/reservation_handler.go,,implemented
-REQ-058,"When a copy becomes available, the system shall notify the member at the head of the queue.",functional,DES-002,internal/service/reservation_service.go,,implemented
+REQ-058,"When a copy becomes available, the system shall notify the member at the head of the queue.",functional,DES-002,internal/service/reservation_service.go,TC-059;TC-060;TC-103,verified
 REQ-059,An unclaimed reservation shall expire after a configurable period and pass to the next in queue.,functional,DES-002,internal/repository/postgres/reservation_repo.go,,implemented
-REQ-060,"A member shall view the books they currently hold, with due dates.",functional,DES-001,internal/service/circulation_service.go,,implemented
+REQ-060,"A member shall view the books they currently hold, with due dates.",functional,DES-001,internal/service/circulation_service.go,TC-100,verified
 REQ-061,A member shall view their own complete borrowing history.,functional,DES-001,internal/service/circulation_service.go,,implemented
 REQ-062,A member shall not view any other member's history. (DOM-009),functional,DES-001,router.go (/me routes),,implemented
 REQ-063,A librarian shall view the full loan history of any member or any copy.,functional,DES-001,,,specified
@@ -76,19 +76,19 @@ REQ-065,"A librarian shall view a dashboard: total books, total copies, active l
 REQ-066,A librarian shall view most-borrowed titles over a period.,functional,DES-008,,,specified
 REQ-067,An administrator shall create and manage librarian accounts.,functional,DES-008,,,specified
 REQ-068,"The system shall record an audit log of staff actions on catalogue, members and loans.",functional,DES-008,,,specified
-REQ-069,The system shall notify a member by email before a loan falls due.,functional,DES-008,internal/queue/worker.go,,implemented
-REQ-070,The system shall notify a member when a loan becomes overdue.,functional,DES-008,internal/queue/worker.go,,implemented
-REQ-071,The system shall support push notification via Firebase Cloud Messaging.,functional,DES-008,internal/notify/fcm.go,,implemented
-REQ-072,"Notifications shall be queued and delivered asynchronously, never blocking an API response.",functional,DES-008,internal/queue/worker.go,,implemented
-REQ-073,The system shall publish an OpenAPI 3 specification and serve interactive Swagger documentation.,functional,DES-007,docs/openapi.yaml; internal/transport/http/docs,,implemented
-REQ-074,The system shall expose a health endpoint reporting service and database reachability.,functional,DES-007,internal/transport/http/handler/admin_handler.go,,implemented
-NFR-001,"Search response time: 95th percentile under 500 ms for a 10,000-book catalogue at 50 concurrent users",non-functional,DES-009,,,specified
-NFR-002,"Password storage: Argon2id, unique salt per password. Plaintext or unsalted hashes are a defect.",non-functional,DES-009,internal/auth/password.go,,implemented
-NFR-003,Session tokens: JWT access token expiring in 15 minutes; refresh token in 7 days and revocable,non-functional,DES-009,internal/auth/token.go,,implemented
-NFR-004,Access control: Role checked server-side on every protected endpoint. Client-side checks are not access control.,non-functional,DES-009,internal/transport/http/middleware,,implemented
-NFR-005,Brute-force resistance: Authentication endpoints rate-limited to 5 attempts per minute per IP,non-functional,DES-009,internal/transport/http/middleware,,implemented
+REQ-069,The system shall notify a member by email before a loan falls due.,functional,DES-008,internal/queue/worker.go,TC-035,verified
+REQ-070,The system shall notify a member when a loan becomes overdue.,functional,DES-008,internal/queue/worker.go,TC-035,verified
+REQ-071,The system shall support push notification via Firebase Cloud Messaging.,functional,DES-008,internal/notify/fcm.go,TC-065;TC-066;TC-092,verified
+REQ-072,"Notifications shall be queued and delivered asynchronously, never blocking an API response.",functional,DES-008,internal/queue/worker.go,TC-061;TC-062;TC-063;TC-064;TC-067;TC-093,verified
+REQ-073,The system shall publish an OpenAPI 3 specification and serve interactive Swagger documentation.,functional,DES-007,docs/openapi.yaml; internal/transport/http/docs,TC-068;TC-069,verified
+REQ-074,The system shall expose a health endpoint reporting service and database reachability.,functional,DES-007,internal/transport/http/handler/admin_handler.go,TC-077,verified
+NFR-001,"Search response time: 95th percentile under 500 ms for a 10,000-book catalogue at 50 concurrent users",non-functional,DES-009,,TC-055;TC-072;TC-073;TC-074,specified
+NFR-002,"Password storage: Argon2id, unique salt per password. Plaintext or unsalted hashes are a defect.",non-functional,DES-009,internal/auth/password.go,TC-022;TC-023;TC-024,verified
+NFR-003,Session tokens: JWT access token expiring in 15 minutes; refresh token in 7 days and revocable,non-functional,DES-009,internal/auth/token.go,TC-025;TC-026;TC-027;TC-028;TC-040;TC-041,verified
+NFR-004,Access control: Role checked server-side on every protected endpoint. Client-side checks are not access control.,non-functional,DES-009,internal/transport/http/middleware,TC-021;TC-079;TC-080,verified
+NFR-005,Brute-force resistance: Authentication endpoints rate-limited to 5 attempts per minute per IP,non-functional,DES-009,internal/transport/http/middleware,TC-094,verified
 NFR-006,"Transport: HTTPS only, HSTS enabled, HTTP redirected",non-functional,DES-009,,,specified
-NFR-007,Input validation: Every request body and query parameter validated server-side before use,non-functional,DES-009,,,specified
+NFR-007,Input validation: Every request body and query parameter validated server-side before use,non-functional,DES-009,,TC-084,specified
 NFR-008,Injection resistance: Parameterised queries exclusively. No string-concatenated SQL.,non-functional,DES-009,internal/repository/postgres,,implemented
 NFR-009,"Data integrity: `available_copies` shall never be negative and loans shall never exceed total copies. Enforced by database constraint and transaction, not application code alone.",non-functional,DES-006,migrations/0001_init.sql,,implemented
 NFR-010,"Logging: Structured logs. No passwords, tokens or member personal data written to logs. (DOM-009)",non-functional,DES-009,,,specified
