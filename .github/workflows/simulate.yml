@@ -1,0 +1,80 @@
+# Scheduled synthetic activity against the deployed system.
+#
+# Two purposes, and the second is the one that matters:
+#
+#   1. The catalogue stays populated and the library looks alive, rather than
+#      being a demonstration of an empty database.
+#
+#   2. Every run exercises authentication, authorisation, validation, the
+#      borrowing rules and the concurrency guards through the public API, then
+#      asserts the library is still internally consistent. If something broke
+#      overnight, this is what says so.
+#
+# It is NOT a keep-warm. Render's free tier sleeps after fifteen minutes and
+# pinging it continuously to prevent that is against the spirit of the plan.
+# Three runs a day leaves a trace and checks the system; the keep-warm for the
+# defence window is a separate, deliberately enabled thing (DEC-013).
+
+name: Simulate library activity
+
+on:
+  schedule:
+    # 07:00, 13:00 and 19:00 UTC, which is 08:00, 14:00 and 20:00 in Lagos:
+    # roughly when a library is busy.
+    - cron: '0 7,13,19 * * *'
+  workflow_dispatch:
+    inputs:
+      passes:
+        description: 'Number of passes'
+        default: '1'
+      titles:
+        description: 'Titles to import per pass'
+        default: '12'
+
+env:
+  PRODUCTION_URL: https://api.library.appmd.dev
+
+jobs:
+  simulate:
+    name: Drive the library and check it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+
+      - name: Run the simulator
+        env:
+          SIMULATOR_LOGIN: ${{ secrets.SIMULATOR_LOGIN }}
+          SIMULATOR_PASSWORD: ${{ secrets.SIMULATOR_PASSWORD }}
+        run: |
+          if [ -z "$SIMULATOR_PASSWORD" ]; then
+            echo "SIMULATOR_LOGIN and SIMULATOR_PASSWORD are not set."
+            echo "Create a librarian account and add them as repository secrets."
+            exit 1
+          fi
+
+          go run ./cmd/simulator \
+            -url "${PRODUCTION_URL}" \
+            -login "$SIMULATOR_LOGIN" \
+            -passes "${{ inputs.passes || 1 }}" \
+            -titles "${{ inputs.titles || 12 }}"
+
+      # The simulator exits non-zero when a consistency check fails, so the run
+      # goes red on its own. This step reports what the library looks like
+      # afterwards, which is the thing a person actually wants to see in the
+      # summary.
+      - name: Summarise the collection
+        if: always()
+        run: |
+          books=$(curl -sS -A 'HOLibrary-CI/1.0' "${PRODUCTION_URL}/api/v1/books?per_page=1" \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["meta"]["total"])')
+          {
+            echo "### Library after this run"
+            echo
+            echo "- titles in the catalogue: **${books}**"
+            echo "- api: ${PRODUCTION_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"

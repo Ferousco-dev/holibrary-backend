@@ -53,6 +53,16 @@ func main() {
 		asJSON       = flag.Bool("json", false, "emit the report as JSON")
 		allowReal    = flag.Bool("allow-real-data", false,
 			"run even though this instance holds real member records (destructive; do not use in production)")
+
+		// Overrides for the model's per-pass caps. The model is tuned for a
+		// scheduled run that should leave a trace rather than flood the library;
+		// stocking a catalogue from empty is a different job and wants different
+		// numbers.
+		passes   = flag.Int("passes", 1, "how many passes to run in this invocation")
+		titles   = flag.Int("titles", 0, "titles to import per pass; 0 uses the model")
+		members  = flag.Int("members", -1, "members to register per pass; -1 uses the model")
+		actions  = flag.Int("actions", -1, "borrow and return actions per pass; -1 uses the model")
+		pauseFor = flag.Duration("pause", 2*time.Second, "wait between passes, to be a considerate client of the external catalogue")
 	)
 	flag.Parse()
 
@@ -67,6 +77,18 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "loading the behaviour model:", err)
 		os.Exit(1)
+	}
+
+	// A flag set explicitly wins over the model. The model stays the default so
+	// a scheduled run needs no arguments and behaves the same every time.
+	if *titles > 0 {
+		model.Pass.MaxNewTitles = *titles
+	}
+	if *members >= 0 {
+		model.Pass.MaxNewMembers = *members
+	}
+	if *actions >= 0 {
+		model.Pass.MaxActions = *actions
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -116,7 +138,26 @@ func main() {
 	// A single pass by default, so it can be run from a cron job or a GitHub
 	// Actions schedule and its exit code means something.
 	if *every == 0 {
-		os.Exit(runOnce())
+		worst := 0
+		for i := 0; i < *passes; i++ {
+			if *passes > 1 {
+				fmt.Printf("pass %d of %d\n", i+1, *passes)
+			}
+			if code := runOnce(); code > worst {
+				worst = code
+			}
+			// Between passes, not after the last one. Open Library is a public
+			// service run by a charity; hammering it because a loop is cheap
+			// would be rude.
+			if i < *passes-1 {
+				select {
+				case <-ctx.Done():
+					os.Exit(worst)
+				case <-time.After(*pauseFor):
+				}
+			}
+		}
+		os.Exit(worst)
 	}
 
 	// Or resident, for a demonstration where the library should visibly tick
