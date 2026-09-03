@@ -39,14 +39,27 @@ type Limiter interface {
 // This is what makes the limit hold across a restart and across instances. An
 // in-process counter resets every deploy, which is a gift to anyone patient
 // enough to wait for one.
-type Redis struct{ client *redis.Client }
+type Redis struct {
+	client *redis.Client
+	// prefix namespaces every key this application writes.
+	//
+	// A free Upstash account allows one database, so this one may be shared
+	// with another application. Namespacing means the two cannot collide, and
+	// it means every key belonging to the library can be found, inspected or
+	// removed as a group. Sharing a Redis without a prefix is how one
+	// application's cleanup silently becomes another's outage.
+	prefix string
+}
 
-func NewRedis(url string) (*Redis, error) {
+func NewRedis(url, prefix string) (*Redis, error) {
 	opts, err := redis.ParseURL(url)
 	if err != nil {
 		return nil, err
 	}
-	return &Redis{client: redis.NewClient(opts)}, nil
+	if prefix == "" {
+		prefix = "holibrary"
+	}
+	return &Redis{client: redis.NewClient(opts), prefix: prefix + ":"}, nil
 }
 
 func (r *Redis) Ping(ctx context.Context) error { return r.client.Ping(ctx).Err() }
@@ -56,6 +69,8 @@ func (r *Redis) Allow(ctx context.Context, key string, limit int, window time.Du
 	// rather than only on the first: setting it only when the counter is 1
 	// races two simultaneous first requests and can leave a key with no TTL,
 	// which would ban the account permanently.
+	key = r.prefix + key
+
 	pipe := r.client.TxPipeline()
 	count := pipe.Incr(ctx, key)
 	pipe.Expire(ctx, key, window)

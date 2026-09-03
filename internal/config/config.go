@@ -20,6 +20,9 @@ type Config struct {
 
 	DatabaseURL string
 	RedisURL    string
+	// RedisPrefix namespaces this application's keys, so a Redis shared with
+	// another application cannot collide with it.
+	RedisPrefix string
 
 	JWTSecret       string
 	AccessTokenTTL  time.Duration
@@ -62,6 +65,7 @@ func Load() (Config, error) {
 		Env:                fallback("ENV", "development"),
 		DatabaseURL:        os.Getenv("DATABASE_URL"),
 		RedisURL:           os.Getenv("REDIS_URL"),
+		RedisPrefix:        fallback("REDIS_PREFIX", "holibrary"),
 		JWTSecret:          os.Getenv("JWT_SECRET"),
 		ResendAPIKey:       os.Getenv("RESEND_API_KEY"),
 		MailFrom:           fallback("MAIL_FROM", "library@example.edu.ng"),

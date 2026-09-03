@@ -176,7 +176,7 @@ func run() error {
 	// service (DEF-019).
 	var limiter ratelimit.Limiter
 	if cfg.RedisURL != "" {
-		if r, err := ratelimit.NewRedis(cfg.RedisURL); err != nil {
+		if r, err := ratelimit.NewRedis(cfg.RedisURL, cfg.RedisPrefix); err != nil {
 			slog.Error("could not parse REDIS_URL; falling back to an in-process limiter",
 				"error", err)
 			limiter = ratelimit.NewMemory()
@@ -187,7 +187,7 @@ func run() error {
 		} else {
 			defer r.Close()
 			limiter = r
-			slog.Info("rate limiting backed by Redis")
+			slog.Info("rate limiting backed by Redis", "key_prefix", cfg.RedisPrefix)
 		}
 	} else {
 		slog.Warn("no REDIS_URL; rate limits are in-process and reset on restart")
