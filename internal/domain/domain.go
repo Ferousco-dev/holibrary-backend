@@ -258,3 +258,25 @@ type Reservation struct {
 	QueuePos  int
 	BookTitle string
 }
+
+// DisplayTimezone is the timezone the library's readers think in.
+//
+// It is a named zone, not a fixed +01:00 offset: a name continues to be correct
+// if Nigeria ever changes its offset, and an offset does not. Nothing in the
+// backend stores or compares time in this zone. It exists so that a rendered
+// message ("due Thursday at 7:15 PM") reads the way a student in Ile-Ife
+// expects, while the instant behind it stays UTC.
+const DisplayTimezone = "Africa/Lagos"
+
+// InDisplayTimezone renders an instant in the library's local time.
+//
+// If the zone cannot be loaded the instant is returned in UTC rather than
+// guessed at, because a wrong time shown confidently is worse than a correct
+// time shown in an unexpected zone.
+func InDisplayTimezone(t time.Time) time.Time {
+	loc, err := time.LoadLocation(DisplayTimezone)
+	if err != nil {
+		return t.UTC()
+	}
+	return t.In(loc)
+}

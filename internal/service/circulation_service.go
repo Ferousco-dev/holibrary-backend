@@ -29,11 +29,17 @@ type CirculationService struct {
 	loans    CirculationStore
 	members  MemberLookup
 	notifier Notifier
-	now      func() time.Time // injectable so overdue logic is testable
+	// now is injectable so the overdue rules can be tested at a fixed instant.
+	// It returns UTC: every timestamp this service stores or compares is UTC,
+	// and Africa/Lagos exists only at the point of display.
+	now func() time.Time
 }
 
 func NewCirculationService(l CirculationStore, m MemberLookup, n Notifier) *CirculationService {
-	return &CirculationService{loans: l, members: m, notifier: n, now: time.Now}
+	return &CirculationService{
+		loans: l, members: m, notifier: n,
+		now: func() time.Time { return time.Now().UTC() },
+	}
 }
 
 // Borrow records that a member has walked away with a physical copy.

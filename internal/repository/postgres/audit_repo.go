@@ -3,12 +3,18 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // AuditRepo records who changed what, and when (NFR-020, REQ-068).
+//
+// created_at is read as a timestamptz and marshalled by encoding/json as
+// RFC 3339. An earlier version formatted it in SQL with to_char and appended a
+// literal "Z", which labelled a Lagos-local time as UTC and silently shifted
+// every audit entry by an hour. DEF-004.
 type AuditRepo struct{ db *pgxpool.Pool }
 
 func NewAuditRepo(db *pgxpool.Pool) *AuditRepo { return &AuditRepo{db: db} }
@@ -21,7 +27,9 @@ type AuditEntry struct {
 	EntityType string         `json:"entity_type"`
 	EntityID   *uuid.UUID     `json:"entity_id"`
 	Metadata   map[string]any `json:"metadata"`
-	CreatedAt  string         `json:"created_at"`
+	// time.Time, not a preformatted string: encoding/json renders it as
+	// RFC 3339 and the driver hands it over already resolved to an instant.
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Record writes an audit row. Failures are returned but callers generally log
@@ -42,7 +50,7 @@ func (r *AuditRepo) List(ctx context.Context, limit, offset int) ([]AuditEntry, 
 	rows, err := r.db.Query(ctx, `
 		SELECT a.id, a.actor_id, coalesce(u.full_name,'(deleted)'), a.action,
 		       a.entity_type, a.entity_id, a.metadata,
-		       to_char(a.created_at, 'YYYY-MM-DD"T"HH24:MI:SSZ'),
+		       a.created_at,
 		       count(*) OVER() AS total
 		  FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id
 		 ORDER BY a.created_at DESC

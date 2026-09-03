@@ -22,6 +22,11 @@ func NewCirculationHandler(c *service.CirculationService) *CirculationHandler {
 //
 // There is no is_overdue column behind this. The value is derived from the
 // clock on every read, so it cannot be stale (REQ-053).
+//
+// Every timestamp is emitted as RFC 3339 in UTC. Whether a reader opens this
+// from Ile-Ife, London or Toronto, the server's answer to "is this overdue" is
+// the same; converting to Africa/Lagos is the frontend's job and affects
+// nothing but presentation.
 type loanResponse struct {
 	ID              string     `json:"id"`
 	CopyID          string     `json:"copy_id"`
@@ -56,7 +61,9 @@ func toLoanResponse(l domain.Loan, now time.Time) loanResponse {
 }
 
 func toLoanResponses(loans []domain.Loan) []loanResponse {
-	now := time.Now()
+	// One instant for the whole page, in UTC, so two rows in the same response
+	// can never disagree about whether "now" is past a due date.
+	now := time.Now().UTC()
 	out := make([]loanResponse, 0, len(loans))
 	for _, l := range loans {
 		out = append(out, toLoanResponse(l, now))
@@ -105,7 +112,7 @@ func (h *CirculationHandler) Borrow(w http.ResponseWriter, r *http.Request) {
 		response.FromError(w, err)
 		return
 	}
-	response.JSON(w, http.StatusCreated, toLoanResponse(loan, time.Now()), nil)
+	response.JSON(w, http.StatusCreated, toLoanResponse(loan, time.Now().UTC()), nil)
 }
 
 // Return records a copy coming back to the shelf (REQ-048..051).
@@ -125,7 +132,7 @@ func (h *CirculationHandler) Return(w http.ResponseWriter, r *http.Request) {
 		response.FromError(w, err)
 		return
 	}
-	response.JSON(w, http.StatusOK, toLoanResponse(loan, time.Now()), nil)
+	response.JSON(w, http.StatusOK, toLoanResponse(loan, time.Now().UTC()), nil)
 }
 
 // List serves the circulation desk, optionally narrowed to overdue items

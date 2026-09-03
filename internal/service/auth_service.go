@@ -102,7 +102,7 @@ func (s *AuthService) issueSession(ctx context.Context, user domain.User) (Sessi
 	if err != nil {
 		return Session{}, err
 	}
-	expires := time.Now().Add(s.issuer.RefreshTTL())
+	expires := time.Now().UTC().Add(s.issuer.RefreshTTL())
 	if err := s.tokens.SaveRefreshToken(ctx, user.ID, refreshHash, expires); err != nil {
 		return Session{}, err
 	}
@@ -189,7 +189,7 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 	if err != nil {
 		return err
 	}
-	if err := s.tokens.SavePasswordReset(ctx, user.ID, hash, time.Now().Add(PasswordResetTTL)); err != nil {
+	if err := s.tokens.SavePasswordReset(ctx, user.ID, hash, time.Now().UTC().Add(PasswordResetTTL)); err != nil {
 		return err
 	}
 

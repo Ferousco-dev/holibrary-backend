@@ -40,7 +40,9 @@ func (t *TokenIssuer) AccessTTL() time.Duration  { return t.accessTTL }
 
 // IssueAccessToken returns a signed JWT for the given user.
 func (t *TokenIssuer) IssueAccessToken(userID uuid.UUID, role string) (string, error) {
-	now := time.Now()
+	// UTC, because this instant is encoded into a token that will be verified
+	// on another machine in another timezone.
+	now := time.Now().UTC()
 	claims := Claims{
 		UserID: userID,
 		Role:   role,

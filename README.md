@@ -188,6 +188,36 @@ migrations/              numbered, forward-only SQL
 No component is here without a problem it solves. That is deliberate: every
 choice has to be defensible out loud.
 
+## Time and timezone
+
+Borrowing, due dates, overdue detection, reminders, audit entries and token
+expiry are all time. If the time model is wrong they are all wrong together, and
+none of them announce it. So one rule governs:
+
+> **Store UTC. Display `Africa/Lagos`.**
+
+```
+   2026-09-03T18:15:00Z      2026-09-17T18:15:00Z     stored and compared
+   03 Sep 2026, 7:15 PM      17 Sep 2026, 7:15 PM     shown, Africa/Lagos
+```
+
+- Every event column is **`TIMESTAMPTZ`** — 21 of 21. Plain `TIMESTAMP` stores a
+  wall-clock reading with no zone, so a due date written in Lagos and read from a
+  UTC server is silently an hour out and nothing raises an error.
+- The wire format is **RFC 3339**, never `17/09/26 6:15`.
+- The **server** generates `borrowed_at`, `returned_at`, audit times and token
+  expiry. A client-supplied timestamp is not trusted for any of them.
+- **Overdue is decided here, not in the browser**, and the boundary is
+  exclusive — overdue strictly *after* the due instant.
+- The zone is named (`Africa/Lagos`), not an offset (`UTC+1`), so it stays
+  correct if the offset ever changes.
+- `import _ "time/tzdata"` embeds the timezone database, because the production
+  image is `FROM scratch` and has no `/usr/share/zoneinfo` — a bug that would
+  appear in production and nowhere else.
+- `time.Local = time.UTC` at startup, so the host's zone is irrelevant.
+
+Full policy: `docs/design.md` §4A (DES-010).
+
 ## Security
 
 | Concern | Mechanism |

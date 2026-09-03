@@ -15,6 +15,13 @@ import (
 	"syscall"
 	"time"
 
+	// The production image is FROM scratch and has no /usr/share/zoneinfo, so
+	// time.LoadLocation("Africa/Lagos") would fail there and nowhere else --
+	// the classic bug that passes every test on a developer laptop and only
+	// appears once deployed. This embeds the timezone database in the binary
+	// (~450 KB) so named zones resolve identically everywhere.
+	_ "time/tzdata"
+
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
 	"github.com/Ferousco-dev/holibrary-backend/internal/config"
 	"github.com/Ferousco-dev/holibrary-backend/internal/repository/postgres"
@@ -37,6 +44,12 @@ func run() error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
+
+	// The process runs in UTC regardless of what the host is set to, so a log
+	// line, a stored timestamp and a due-date comparison can never disagree
+	// because of the container's local timezone. Africa/Lagos is a display
+	// concern and belongs in the frontend.
+	time.Local = time.UTC
 
 	cfg, err := config.Load()
 	if err != nil {
