@@ -23,6 +23,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
+	"github.com/Ferousco-dev/holibrary-backend/internal/books"
 	"github.com/Ferousco-dev/holibrary-backend/internal/config"
 	"github.com/Ferousco-dev/holibrary-backend/internal/notify"
 	"github.com/Ferousco-dev/holibrary-backend/internal/queue"
@@ -167,6 +168,7 @@ func run() error {
 		Members:      handler.NewMemberHandler(memberService, circulationService),
 		Reservations: handler.NewReservationHandler(reservationService),
 		Devices:      handler.NewDeviceHandler(outbox),
+		Lookup:       handler.NewLookupHandler(books.NewOpenLibrary(cfg.OpenLibraryBaseURL)),
 		Admin:        handler.NewAdminHandler(circulationService, audit),
 		Ping:         func() error { return db.Ping(ctx) },
 	}, transport.Options{

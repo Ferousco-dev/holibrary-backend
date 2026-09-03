@@ -11,7 +11,11 @@ services:
       POSTGRES_PASSWORD: holibrary
       POSTGRES_DB: holibrary
     ports:
-      - "5432:5432"
+      # 55432 on the host, not 5432: a developer machine often already runs a
+      # local Postgres on the default port, and a host-side tool would silently
+      # connect to that instead of this container. The API is unaffected either
+      # way -- it reaches the database as db:5432 over the compose network.
+      - "55432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Migrations run in filename order on first start of an empty volume.

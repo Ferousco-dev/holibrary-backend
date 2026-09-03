@@ -1,0 +1,113 @@
+{
+  "name": "hol-reader-behaviour",
+  "version": "1.0.0",
+  "description": "A probabilistic behaviour model for simulated library activity. Not a neural network and not trained on anything: these are hand-set weights, chosen to make generated activity resemble a real academic library rather than uniform noise.",
+
+  "collection": {
+    "comment": "Subjects to stock, weighted towards what an OAU reading list actually looks like. LCC class is assigned per subject so the shelf wing derives correctly.",
+    "subjects": [
+      { "query": "computer science",        "lcc": "Q", "weight": 0.14 },
+      { "query": "software engineering",    "lcc": "Q", "weight": 0.12 },
+      { "query": "mathematics",             "lcc": "Q", "weight": 0.10 },
+      { "query": "nigerian history",        "lcc": "D", "weight": 0.09 },
+      { "query": "african literature",      "lcc": "P", "weight": 0.09 },
+      { "query": "economics",               "lcc": "H", "weight": 0.08 },
+      { "query": "nigerian law",            "lcc": "K", "weight": 0.07 },
+      { "query": "electrical engineering",  "lcc": "T", "weight": 0.07 },
+      { "query": "medicine",                "lcc": "R", "weight": 0.06 },
+      { "query": "botany",                  "lcc": "Q", "weight": 0.05 },
+      { "query": "philosophy",              "lcc": "B", "weight": 0.05 },
+      { "query": "yoruba language",         "lcc": "P", "weight": 0.04 },
+      { "query": "public health",           "lcc": "R", "weight": 0.04 }
+    ],
+
+    "copies_per_title": {
+      "comment": "Most titles are held in one or two copies; a few core texts in many. Long-tailed, like a real collection.",
+      "distribution": [
+        { "copies": 1, "weight": 0.42 },
+        { "copies": 2, "weight": 0.26 },
+        { "copies": 3, "weight": 0.16 },
+        { "copies": 5, "weight": 0.10 },
+        { "copies": 8, "weight": 0.06 }
+      ]
+    },
+
+    "loan_policy": {
+      "comment": "Matches HOL's real collections: most of the stock circulates, but reference works, recent accessions on display and restricted collections do not.",
+      "distribution": [
+        { "policy": "circulating",    "weight": 0.82 },
+        { "policy": "reference_only", "weight": 0.08 },
+        { "policy": "on_display",     "weight": 0.06 },
+        { "policy": "restricted",     "weight": 0.04 }
+      ]
+    }
+  },
+
+  "members": {
+    "comment": "Reader archetypes. borrow_rate is the chance this member attempts to borrow on a given pass; return_rate is the chance they bring something back.",
+    "archetypes": [
+      {
+        "name": "heavy reader",
+        "weight": 0.15,
+        "category": "postgraduate",
+        "borrow_rate": 0.70,
+        "return_rate": 0.55,
+        "reserve_rate": 0.30,
+        "overdue_tendency": 0.10
+      },
+      {
+        "name": "regular student",
+        "weight": 0.45,
+        "category": "undergraduate",
+        "borrow_rate": 0.35,
+        "return_rate": 0.45,
+        "reserve_rate": 0.15,
+        "overdue_tendency": 0.20
+      },
+      {
+        "name": "occasional borrower",
+        "weight": 0.30,
+        "category": "undergraduate",
+        "borrow_rate": 0.12,
+        "return_rate": 0.60,
+        "reserve_rate": 0.05,
+        "overdue_tendency": 0.30
+      },
+      {
+        "name": "lecturer",
+        "weight": 0.10,
+        "category": "staff",
+        "borrow_rate": 0.40,
+        "return_rate": 0.25,
+        "reserve_rate": 0.10,
+        "overdue_tendency": 0.15
+      }
+    ],
+
+    "names": {
+      "comment": "Nigerian given names and surnames, so the member roll looks like OAU rather than a generic test fixture.",
+      "given": ["Adaeze","Bolanle","Chidi","Damilola","Emeka","Funmilayo","Gbenga","Halima",
+                "Ifeoma","Jide","Kemi","Lekan","Maryam","Nnamdi","Olamide","Peter",
+                "Qudus","Rukayat","Segun","Tola","Uche","Victor","Wale","Yemisi","Zainab"],
+      "family": ["Adebayo","Balogun","Chukwu","Danjuma","Eze","Fashola","Gowon","Hassan",
+                 "Ibrahim","Jegede","Kalu","Lawal","Mohammed","Nwosu","Okonkwo","Oyelaran",
+                 "Salami","Tijani","Umar","Williams"]
+    },
+
+    "departments": ["Software Engineering","Computer Science","Electrical Engineering",
+                    "Economics","Law","Medicine","History","English","Botany","Civil Engineering"],
+    "levels": ["100","200","300","400","500"]
+  },
+
+  "popularity": {
+    "comment": "Zipf exponent. Borrowing is not uniform: a handful of core texts absorb most demand, which is what makes queues form on the titles that matter.",
+    "zipf_exponent": 1.3
+  },
+
+  "pass": {
+    "comment": "Volume per scheduled run. Small on purpose: a canary should leave a trace, not flood the library.",
+    "max_new_titles": 12,
+    "max_new_members": 5,
+    "max_actions": 25
+  }
+}

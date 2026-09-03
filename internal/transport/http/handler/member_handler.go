@@ -42,8 +42,20 @@ type createMemberRequest struct {
 	Identifier string `json:"identifier"`
 	Email      string `json:"email"`
 	FullName   string `json:"full_name"`
-	Category   string `json:"category"`
+	// First and last name may be supplied separately, as they appear on the
+	// identity card the applicant presents at the desk.
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	// Faculty, department and level are captured at registration because the
+	// librarian already has the card in hand, and they make the member roll
+	// searchable the way a librarian thinks: "the 200-level Software
+	// Engineering students". Columns added in migration 0003; the CSV import
+	// accepted them from the start, and this endpoint did not.
+	Faculty    string `json:"faculty"`
+	Department string `json:"department"`
+	Level      string `json:"level"`
 	Role       string `json:"role"`
+	Category   string `json:"category"`
 }
 
 // Create registers a member at the desk (REQ-009).
@@ -60,6 +72,11 @@ func (h *MemberHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Identifier: req.Identifier,
 		Email:      req.Email,
 		FullName:   req.FullName,
+		FirstName:  req.FirstName,
+		LastName:   req.LastName,
+		Faculty:    req.Faculty,
+		Department: req.Department,
+		Level:      req.Level,
 		Category:   domain.MemberCategory(req.Category),
 		Role:       domain.Role(req.Role),
 	})

@@ -165,6 +165,68 @@ with an attacker creating their own account.
 
 ---
 
+## The activity simulator
+
+A library with four books in it does not look like a library. `cmd/simulator` is
+a scheduled agent that stocks the catalogue from openlibrary.org, registers
+members, and drives borrowing and returns according to a behaviour model — then
+checks the library is still internally consistent and reports.
+
+```bash
+SIMULATOR_PASSWORD=... go run ./cmd/simulator -login librarian@oauife.edu.ng
+```
+
+```
+HOLibrary activity simulator - hol-reader-behaviour v1.0.0
+OK  (2.6s)
+
+  what it did
+    titles imported   12
+    copies shelved    19
+    members added     5
+    books lent        6
+    books returned    6
+
+  consistency checks
+    [pass] the catalogue is reachable without signing in
+    [pass] availability never exceeds the number of copies held
+    [pass] no copy is out on more than one loan
+    [pass] a member cannot reach staff routes
+    [pass] the service reports its database reachable
+```
+
+**It is not an AI model.** There is no training, no learned weights, no
+inference. `model.json` is 4.7 KB of hand-chosen probabilities — closer to a
+game's loot table than to a neural network. The pattern has a proper name,
+**synthetic monitoring**: exercising a live system with generated traffic to
+prove it works, rather than waiting for a real user to discover that it does not.
+Describing it accurately is worth more than describing it impressively.
+
+**It drives the public API, not the database.** Writing rows directly would
+populate the catalogue while proving nothing. Going through the API means every
+pass re-exercises authentication, authorisation, validation, the borrowing rules
+and the concurrency guards, exactly as a librarian's browser would. There is no
+back door for the simulator — when it tripped the library's own login rate limit,
+that was the limiter working and the simulator behaving badly.
+
+The model makes the generated activity resemble a real library rather than
+uniform noise:
+
+- **Demand is Zipf-distributed** — the top 10% of titles take **74%** of
+  borrowing. Uniform sampling would look busy but would never produce the one
+  situation the system most needs to handle: everybody wanting the same book.
+- **Holdings are long-tailed** — most titles in one or two copies, a few core
+  texts in many.
+- **18% of copies do not circulate**, matching HOL's reference, display and
+  restricted collections.
+- **Four reader archetypes** with different borrowing and returning rates.
+
+Everything it creates is flagged `is_synthetic` and uses a non-deliverable
+`@simulated.invalid` address, so no simulated borrower can ever be mistaken for a
+real student and nothing it creates can email a real person. Each pass is
+recorded in `simulation_runs` with what it did, which rules fired, and whether
+every consistency check held.
+
 ## Running it
 
 ### Locally, with Docker

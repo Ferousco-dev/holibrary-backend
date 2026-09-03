@@ -348,3 +348,35 @@ SELECT ... FOR UPDATE lock that had never been written. The documentation was
 part of the defect, and a reviewer who trusted it would have confirmed the bug
 rather than found it. All three have been corrected, with the error left on the
 record rather than quietly deleted.
+
+## 2026-09-03 | 04 | constructor | ACTIVITY SIMULATOR + REQ-017
+Requested as "a very tiny AI model". Built and named honestly as a synthetic
+activity simulator, and the naming was raised with the owner before building:
+there is no training, no weights and no inference, so calling it AI at the
+defence would invite a question with no answer (DEC-019).
+
+  internal/books/       external catalogue client, closing REQ-017
+  internal/simulator/   4.7 KB behaviour model + agent + consistency checks
+  cmd/simulator/        the command, single pass or resident
+  migration 0009        is_synthetic flags, simulation_runs history
+
+The behaviour model is hand-set probabilities: Zipf-distributed demand so the
+top 10% of titles take 74% of borrowing and queues actually form, long-tailed
+holdings, 18% non-circulating copies matching HOL's real collections, and four
+reader archetypes.
+
+It drives the public API rather than the database, so every pass re-tests
+authentication, authorisation, validation and the borrowing rules (DEC-020).
+Two findings came straight out of that:
+  - POST /members rejected department and level. The columns existed from
+    migration 0003 and the CSV import accepted them; the endpoint never did.
+  - The simulator tripped the library's own per-account login limit by
+    re-authenticating every pass. The limiter was right and the simulator was
+    wrong; it now holds a session like a librarian working a shift.
+
+Also found while testing: a local Postgres on the developer machine was
+shadowing the container on port 5432, so a host-side tool silently connected to
+the wrong database. The compose file now maps 55432.
+
+Verified over five passes: 64 books, 116 copies, 25 members, 24 loans, and every
+consistency check passing on every run.

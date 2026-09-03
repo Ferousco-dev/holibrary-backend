@@ -24,8 +24,8 @@ REQ-013,A librarian shall view a member's profile including current loans and fu
 REQ-014,A librarian shall update a member record.,functional,DES-001,,,specified
 REQ-015,A librarian shall suspend or reactivate a member. A suspended member cannot borrow.,functional,DES-001,,,specified
 REQ-016,"A librarian shall create a book record: title, author(s), ISBN, publisher, place and year of publication, LCC call number, subject headings, description.",functional,DES-005,,TC-054,specified
-REQ-017,A librarian shall import bibliographic data from an external book API by ISBN to pre-fill a new record. (DEC-007),functional,DES-005,,,specified
-REQ-018,Imported data shall be editable before saving; the librarian's entry is authoritative.,functional,DES-005,,,specified
+REQ-017,A librarian shall import bibliographic data from an external book API by ISBN to pre-fill a new record. (DEC-007),functional,DES-005,internal/books/openlibrary.go; transport/http/handler/lookup_handler.go,,implemented
+REQ-018,Imported data shall be editable before saving; the librarian's entry is authoritative.,functional,DES-005,internal/books/openlibrary.go; transport/http/handler/lookup_handler.go,,implemented
 REQ-019,A librarian shall update a book record.,functional,DES-005,,,specified
 REQ-020,A librarian shall archive a book. Archived books leave search results but their loan history is preserved. (DOM-008),functional,DES-005,,,specified
 REQ-021,A librarian shall manage subject headings and LCC categories.,functional,DES-005,,,specified

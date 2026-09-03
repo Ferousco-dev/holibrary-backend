@@ -19,6 +19,7 @@ type Handlers struct {
 	Members      *handler.MemberHandler
 	Reservations *handler.ReservationHandler
 	Devices      *handler.DeviceHandler
+	Lookup       *handler.LookupHandler
 	Admin        *handler.AdminHandler
 	Ping         func() error
 }
@@ -101,6 +102,11 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	staff := func(next http.HandlerFunc) http.Handler {
 		return authenticate(middleware.RequireLibrarian(next))
 	}
+
+	// Pre-fills a catalogue form from an external source. Librarian-only, and
+	// it creates nothing: an external record is a suggestion, not a holding
+	// (REQ-017, I-10).
+	mux.Handle("GET /api/v1/books/lookup", staff(h.Lookup.Lookup))
 
 	mux.Handle("POST /api/v1/books", staff(h.Catalogue.Create))
 	mux.Handle("POST /api/v1/books/{id}/archive", staff(h.Catalogue.Archive))

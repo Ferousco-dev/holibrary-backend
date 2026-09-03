@@ -325,6 +325,53 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "422": { $ref: '#/components/responses/InvalidCallNumber' }
 
+  /books/lookup:
+    get:
+      tags: [Catalogue]
+      summary: Look a book up in an external catalogue
+      description: |
+        Librarian only. Pre-fills a cataloguing form from openlibrary.org so the
+        librarian does not retype what is printed on the title page.
+
+        **This creates nothing.** What comes back is a *suggestion*: title,
+        author, ISBN, publisher, year. Whether HOL holds the book, in how many
+        volumes, on which shelf, and who has one, is answered only from our own
+        database. An external catalogue knowing a book exists says nothing about
+        whether this library owns a copy.
+
+        A title with no external record is **not an error** — `results` is simply
+        empty. Africana, OAU Publications and older Nigerian imprints are largely
+        absent from public catalogues and are catalogued by hand.
+
+        If the external service is unreachable the endpoint returns
+        `502 CATALOGUE_UNAVAILABLE`, and cataloguing by hand continues to work.
+        Our catalogue does not depend on theirs.
+      parameters:
+        - { name: isbn, in: query, schema: { type: string }, description: Exact lookup. Hyphens ignored. }
+        - { name: q, in: query, schema: { type: string }, description: Free-text search, used when the ISBN is unreadable. }
+      responses:
+        "200":
+          description: Suggestions, possibly none
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      results:
+                        type: array
+                        items: { $ref: '#/components/schemas/ExternalBook' }
+                      note: { type: string }
+        "400": { $ref: '#/components/responses/ValidationFailed' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "502":
+          description: The external catalogue could not be reached (`CATALOGUE_UNAVAILABLE`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /books/{id}:
     get:
       tags: [Catalogue]
@@ -1099,6 +1146,11 @@ components:
         identifier: { type: string, example: SWE/2025/001 }
         email: { type: string, format: email }
         full_name: { type: string, description: Or supply first and last name separately. }
+        first_name: { type: string }
+        last_name: { type: string }
+        faculty: { type: string }
+        department: { type: string, example: Software Engineering }
+        level: { type: string, example: "200" }
         category: { type: string, enum: [undergraduate, postgraduate, staff] }
         role:
           type: string
@@ -1122,7 +1174,24 @@ components:
         LCCClass: { type: string, maxLength: 1, example: Q }
         Authors: { type: array, items: { type: string } }
         Subjects: { type: array, items: { type: string } }
-        Availability: { $ref: '#/components/schemas/Availability' }
+        ExternalBook:
+      type: object
+      description: |
+        Bibliographic metadata from an external source. **Not** a holding: it
+        carries no copy count, no availability and no shelf location, because an
+        external catalogue cannot know any of those.
+      properties:
+        title: { type: string }
+        subtitle: { type: string }
+        authors: { type: array, items: { type: string } }
+        isbn13: { type: string }
+        isbn10: { type: string }
+        publisher: { type: string }
+        published_year: { type: integer }
+        subjects: { type: array, items: { type: string } }
+        source: { type: string, example: openlibrary.org }
+
+    Availability: { $ref: '#/components/schemas/Availability' }
         wing:
           type: string
           enum: [South, North, Unknown]
@@ -1164,6 +1233,23 @@ components:
         description: { type: string }
         authors: { type: array, items: { type: string } }
         subjects: { type: array, items: { type: string } }
+
+    ExternalBook:
+      type: object
+      description: |
+        Bibliographic metadata from an external source. **Not** a holding: it
+        carries no copy count, no availability and no shelf location, because an
+        external catalogue cannot know any of those.
+      properties:
+        title: { type: string }
+        subtitle: { type: string }
+        authors: { type: array, items: { type: string } }
+        isbn13: { type: string }
+        isbn10: { type: string }
+        publisher: { type: string }
+        published_year: { type: integer }
+        subjects: { type: array, items: { type: string } }
+        source: { type: string, example: openlibrary.org }
 
     Availability:
       type: object
