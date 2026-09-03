@@ -59,6 +59,18 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 
 	mux.Handle("GET /healthz", handler.Health(h.Ping))
 
+	// The bare domain shows the documentation.
+	//
+	// Someone who types the API's address into a browser is almost always
+	// trying to find out what it does, and answering that with a 404 is
+	// unhelpful. The pattern is "/{$}", which in Go's router matches the root
+	// path EXACTLY -- a plain "/" would swallow every unmatched path and
+	// redirect a genuine typo to the docs instead of admitting the route does
+	// not exist.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/docs", http.StatusFound)
+	})
+
 	// The API documents itself. The frontend is a separate repository and builds
 	// against this contract, so it is served from the running service rather
 	// than kept in a file someone has to remember to share (REQ-073).

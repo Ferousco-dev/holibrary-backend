@@ -115,3 +115,24 @@ func TestSpecIsValidYAML(t *testing.T) {
 	}
 	t.Logf("%d paths parsed", len(paths))
 }
+
+// The bare domain shows the documentation, but only the bare domain.
+//
+// The obvious pattern for this is "/", which in Go's router matches every path
+// nothing else claimed. That would redirect a genuine typo to the docs and give
+// a client a 302 where it expected a 404, which is a slower and more confusing
+// way to discover a wrong URL.
+func TestRootRedirectsOnlyTheRootPath(t *testing.T) {
+	router, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("reading router: %v", err)
+	}
+	src := string(router)
+
+	if !strings.Contains(src, `"GET /{$}"`) {
+		t.Error(`the root route must be registered as "GET /{$}", which matches only the root path`)
+	}
+	if strings.Contains(src, `mux.HandleFunc("GET /", `) || strings.Contains(src, `mux.Handle("GET /", `) {
+		t.Error(`"GET /" is registered; it matches every unmatched path and would redirect typos to the docs`)
+	}
+}
