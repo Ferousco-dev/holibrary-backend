@@ -3,7 +3,7 @@
 An online library management system for **Hezekiah Oluwasanmi Library**, Obafemi
 Awolowo University, Ile-Ife.
 
-Group 4 · SEN 106 / SEN 216 — Introduction to Web Technologies
+Group 4 · SEN 106 / SEN 216, Introduction to Web Technologies
 
 ---
 
@@ -13,8 +13,8 @@ A **modernised Online Public Access Catalogue with an integrated circulation
 module**. It digitises two things HOL currently does with a card catalogue and a
 paper register at the Loans desk:
 
-1. **Discovery** — does the library have this book, is a copy free, and where is it?
-2. **Custody** — which member holds which physical copy, from when, until when.
+1. **Discovery**: does the library have this book, is a copy free, and where is it?
+2. **Custody**: which member holds which physical copy, from when, until when.
 
 It is **not** an e-library. No book content is stored, read, uploaded or sold.
 Every book in this system is a physical volume standing on a shelf in the
@@ -26,7 +26,7 @@ A **book** and a **copy** are not the same thing, and HOL's own vocabulary says
 so. From the LIB 001 course material:
 
 > Accession number is the number given to an item as it comes to the library. It
-> is unique to a copy of a title — if three copies of a title come to the
+> is unique to a copy of a title, if three copies of a title come to the
 > library, each will be given a different accession number. The class number of
 > the 3 copies will be the same.
 
@@ -71,7 +71,7 @@ to lend the same physical volume twice.
 > not contain it. An adversarial audit found the gap, and a test reproduced it: 5
 > simultaneous borrows against a limit of 2 produced **3 loans**. The lock is
 > real now, and the test that caught it runs in the suite. The lesson is recorded
-> rather than quietly deleted — a comment asserting a safety property is a
+> rather than quietly deleted, a comment asserting a safety property is a
 > hypothesis, not an enforcement.
 
 ## Not everything circulates
@@ -82,13 +82,13 @@ HOL does not lend its whole collection, so neither does this system:
 |---|---|---|---|
 | `circulating` | yes | yes | main lending collection |
 | `reference_only` | no | no | Reference Room, consulted in place |
-| `on_display` | no | **yes** | Recent Accessions — *"may not be borrowed while on display but may be reserved at the Loans desk"* |
+| `on_display` | no | **yes** | Recent Accessions, *"may not be borrowed while on display but may be reserved at the Loans desk"* |
 | `restricted` | no | no | Africana, OAU Publications, Serials, Conservation |
 
 ## Indexing
 
 Indexes exist for queries this system actually runs, and **every one was
-validated with `EXPLAIN ANALYZE`** — you cannot tell whether Postgres is using an
+validated with `EXPLAIN ANALYZE`**. You cannot tell whether Postgres is using an
 index by reading the schema.
 
 | Query | Before | After |
@@ -101,7 +101,7 @@ Three things the measurements taught us, all of them counter-intuitive:
 - **At 5,000 books the planner correctly ignored the new trigram index** and
   scanned the table, because at that size a scan really is cheaper. It only
   started paying at around 150,000 rows. HOL holds 750,000 volumes, so the index
-  is justified by the target scale — not by a laptop with seed data on it.
+  is justified by the target scale, not by a laptop with seed data on it.
 - **An `OR` chain is only as indexable as its least-indexed branch.** Member
   search filtered `full_name OR identifier OR email`; two had trigram indexes and
   `email` did not, so Postgres used *neither* and scanned all 38,000 members.
@@ -129,7 +129,7 @@ so a reader who walks in can still consult it:
 ```
 
 That last line is the important one. A blanket "never lend the last copy" would
-make every single-copy title permanently unborrowable — at HOL that would strand
+make every single-copy title permanently unborrowable, at HOL that would strand
 most of the Africana and OAU Publications holdings.
 
 **This is our stated policy, not a rule from the LIB 001 material.** That
@@ -169,7 +169,7 @@ with an attacker creating their own account.
 
 A library with four books in it does not look like a library. `cmd/simulator` is
 a scheduled agent that stocks the catalogue from openlibrary.org, registers
-members, and drives borrowing and returns according to a behaviour model — then
+members, and drives borrowing and returns according to a behaviour model, then
 checks the library is still internally consistent and reports.
 
 ```bash
@@ -196,7 +196,7 @@ OK  (2.6s)
 ```
 
 **It is not an AI model.** There is no training, no learned weights, no
-inference. `model.json` is 4.7 KB of hand-chosen probabilities — closer to a
+inference. `model.json` is 4.7 KB of hand-chosen probabilities, closer to a
 game's loot table than to a neural network. The pattern has a proper name,
 **synthetic monitoring**: exercising a live system with generated traffic to
 prove it works, rather than waiting for a real user to discover that it does not.
@@ -206,16 +206,16 @@ Describing it accurately is worth more than describing it impressively.
 populate the catalogue while proving nothing. Going through the API means every
 pass re-exercises authentication, authorisation, validation, the borrowing rules
 and the concurrency guards, exactly as a librarian's browser would. There is no
-back door for the simulator — when it tripped the library's own login rate limit,
+back door for the simulator, when it tripped the library's own login rate limit
 that was the limiter working and the simulator behaving badly.
 
 The model makes the generated activity resemble a real library rather than
 uniform noise:
 
-- **Demand is Zipf-distributed** — the top 10% of titles take **74%** of
+- **Demand is Zipf-distributed**: the top 10% of titles take **74%** of
   borrowing. Uniform sampling would look busy but would never produce the one
   situation the system most needs to handle: everybody wanting the same book.
-- **Holdings are long-tailed** — most titles in one or two copies, a few core
+- **Holdings are long-tailed**: most titles in one or two copies, a few core
   texts in many.
 - **18% of copies do not circulate**, matching HOL's reference, display and
   restricted collections.
@@ -266,11 +266,11 @@ A **modular monolith**: one Go application, one container, internally layered.
 ```
         HTTP request
              │
-   ┌─────────▼─────────┐   transport  — routing, auth, validation, JSON
+   ┌─────────▼─────────┐   transport  - routing, auth, validation, JSON
    │      handler      │                no business rules
-   ├─────────▼─────────┤   service    — use cases and library rules
+   ├─────────▼─────────┤   service    - use cases and library rules
    │      service      │                knows nothing about HTTP or SQL
-   ├─────────▼─────────┤   repository — SQL only
+   ├─────────▼─────────┤   repository - SQL only
    │    repository     │
    └─────────┬─────────┘
              ▼
@@ -282,7 +282,7 @@ project at all. That is what lets the borrowing rules be unit-tested with no
 database and no web server.
 
 **Microservices were considered and rejected.** The hard problem here is
-transactional integrity on a single shared resource — the last copy — which is
+transactional integrity on a single shared resource, the last copy, which is
 strictly easier in one process against one database. Splitting it would add
 distributed transactions and service discovery and solve nothing.
 
@@ -303,12 +303,12 @@ migrations/              numbered, forward-only SQL
 |---|---|
 | **Go** | The last-copy race is the core problem; Go's tooling and static binary make it easy to reason about and to deploy. 15 MB image. |
 | **PostgreSQL** (Neon) | Constraints and transactions are the correctness mechanism, not an afterthought. Neon's free tier does not expire; Render's Postgres does. |
-| **Redis** (Upstash) | Rate limiting and background job coordination. **Not** email — Redis is not a mail system. |
+| **Redis** (Upstash) | Rate limiting and background job coordination. **Not** email, Redis is not a mail system. |
 | **Resend** | Email delivery. Requires a DNS-verified sending domain. |
 | **FCM** | Push notifications for due-soon, overdue and reservation-ready. |
 | **Docker** | One artefact, identical locally and in production. |
 | **GitHub Actions** | Build, vet, gofmt check and race-detector tests on every push. |
-| **Cloudflare** | DNS, TLS, CDN and WAF in front of the API — the way Cloudflare is actually used in production. |
+| **Cloudflare** | DNS, TLS, CDN and WAF in front of the API, the way Cloudflare is actually used in production. |
 | **OpenAPI** | The frontend is a separate repository and consumes this contract. |
 
 No component is here without a problem it solves. That is deliberate: every
@@ -340,13 +340,13 @@ still holds.
 
 Other things the worker gets right:
 
-- `FOR UPDATE SKIP LOCKED` on the claim, so two workers — or a restart
-  overlapping the previous process — never send the same message twice.
+- `FOR UPDATE SKIP LOCKED` on the claim, so two workers, or a restart
+  overlapping the previous process, never send the same message twice.
 - `scheduled_at` gates the claim, so a reminder written today for next week waits.
 - A push **fans out to every device** a member has registered. One stored token
   would reach whichever device happened to register last.
 - A device token FCM reports as permanently dead is **retired**, not retried
-  forever — and one dead device does not stop a working one from being told.
+  forever, and one dead device does not stop a working one from being told.
 - A permanent failure (malformed address) is closed immediately; a transient one
   is retried up to five times.
 - A channel with **no provider configured leaves its messages queued** rather
@@ -355,7 +355,7 @@ Other things the worker gets right:
 Outside production, with no mail provider configured, notifications are written
 to the log instead. The outbox, the re-check, the retry accounting and the worker
 all behave exactly as they will in production; only the final hop changes. The
-message body is never logged — a password reset body carries a working token.
+message body is never logged, a password reset body carries a working token.
 
 ## Observability
 
@@ -377,7 +377,7 @@ named student reads and does not belong in a log aggregator.
 
 A note on **Firebase**: it is in this stack for **FCM push notifications only**.
 Crashlytics and Performance Monitoring are client-side products for mobile and
-web apps — they have no Go server SDK and cannot observe this API. Backend
+web apps, they have no Go server SDK and cannot observe this API. Backend
 observability here is structured logs plus the health endpoint; a log drain or
 an error tracker with a real Go SDK can be added later if the need is measured
 rather than assumed.
@@ -395,18 +395,18 @@ none of them announce it. So one rule governs:
    03 Sep 2026, 7:15 PM      17 Sep 2026, 7:15 PM     shown, Africa/Lagos
 ```
 
-- Every event column is **`TIMESTAMPTZ`** — 21 of 21. Plain `TIMESTAMP` stores a
+- Every event column is **`TIMESTAMPTZ`**: 21 of 21. Plain `TIMESTAMP` stores a
   wall-clock reading with no zone, so a due date written in Lagos and read from a
   UTC server is silently an hour out and nothing raises an error.
 - The wire format is **RFC 3339**, never `17/09/26 6:15`.
 - The **server** generates `borrowed_at`, `returned_at`, audit times and token
   expiry. A client-supplied timestamp is not trusted for any of them.
 - **Overdue is decided here, not in the browser**, and the boundary is
-  exclusive — overdue strictly *after* the due instant.
+  exclusive, overdue strictly *after* the due instant.
 - The zone is named (`Africa/Lagos`), not an offset (`UTC+1`), so it stays
   correct if the offset ever changes.
 - `import _ "time/tzdata"` embeds the timezone database, because the production
-  image is `FROM scratch` and has no `/usr/share/zoneinfo` — a bug that would
+  image is `FROM scratch` and has no `/usr/share/zoneinfo`: a bug that would
   appear in production and nowhere else.
 - `time.Local = time.UTC` at startup, so the host's zone is irrelevant.
 
@@ -425,7 +425,7 @@ Full policy: `docs/design.md` §4A (DES-010).
 | Login timing | The unknown-account path performs the same Argon2 work as a real verification, so membership cannot be read off the clock |
 | Injection | Parameterised queries throughout; no string-built SQL |
 | Enumeration | Password reset replies identically whether or not the address is registered |
-| Privacy | A member's record is reached via `/me`, never by an id in the URL — there is no parameter to tamper with |
+| Privacy | A member's record is reached via `/me`, never by an id in the URL, so there is no parameter to tamper with |
 | Logging | Structured; never logs bodies, query strings, tokens or member data |
 | Transport | HTTPS at Cloudflare, HSTS, `nosniff`, `DENY` framing |
 | Secrets | Environment only; `.env` git-ignored |
@@ -472,7 +472,7 @@ Responses have exactly one success shape and one error shape:
 ### CSV import
 
 ```bash
-# validate without writing — preview first
+# validate without writing - preview first
 curl -X POST "$API/api/v1/members/import?dry_run=true" \
      -H "Authorization: Bearer $TOKEN" -F file=@intake.csv
 ```
@@ -493,8 +493,8 @@ make test
 ```
 
 Business rules are tested against fakes, so the suite needs no database and runs
-in seconds. `DEF-001` — a due-soon reminder that would have been sent for a book
-already returned — was caught this way, before the code ever ran against
+in seconds. `DEF-001`: a due-soon reminder that would have been sent for a book
+already returned, was caught this way, before the code ever ran against
 Postgres.
 
 ## Process

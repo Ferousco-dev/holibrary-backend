@@ -1,7 +1,7 @@
 # Software Test Plan
-## HOLibrary Backend — Group 4 Online Library Management System
+## HOLibrary Backend: Group 4 Online Library Management System
 
-**Course:** SEN 106 / SEN 216 — Introduction to Web Technologies
+**Course:** SEN 106 / SEN 216, Introduction to Web Technologies
 **Structure:** IEEE 829
 **Phase:** 05 Verification · **Gate:** G5
 **Traces to:** `docs/srs.md` (REQ-001..074, NFR-001..020, DOM-001..009)
@@ -14,8 +14,8 @@
 
 ## 2. Introduction
 
-This plan describes how the HOLibrary backend is verified at four levels — unit,
-integration, system and acceptance — and what evidence each level produces.
+This plan describes how the HOLibrary backend is verified at four levels, unit
+integration, system and acceptance, and what evidence each level produces.
 
 The system records which named student is holding which physical book. Two kinds
 of failure matter more than the rest, and the plan is shaped around them:
@@ -36,7 +36,7 @@ accordingly.
 | Item | Version |
 |---|---|
 | `holibrary-backend` HTTP API | `main` |
-| PostgreSQL schema | migrations `0001`–`0007` |
+| PostgreSQL schema | migrations `0001` to `0007` |
 | Container image | multi-stage build, ~15.5 MB |
 | OpenAPI contract | `docs/openapi.yaml`, 25 paths, 29 operations |
 
@@ -82,7 +82,7 @@ can therefore be exercised in milliseconds.
 
 **Principle: test the refusal, not the happy path.** A test proving a librarian
 can lend an available book proves almost nothing. The tests that matter prove the
-system *refuses* — an inactive member, a reference volume, a limit already
+system *refuses*, an inactive member, a reference volume, a limit already
 reached, an illegal state transition.
 
 | Package | Tests | Coverage |
@@ -90,7 +90,7 @@ reached, an illegal state transition.
 | `domain` | 22 | 94.7% |
 | `service` | 44 | 78.7% |
 | `auth` | 9 | 83.8% |
-| `queue` | 8 | — |
+| `queue` | 8 | |
 | **Total** | **85** | gate: ≥ 70% |
 
 The threshold is enforced in CI, so it cannot regress unnoticed.
@@ -101,7 +101,7 @@ The threshold is enforced in CI, so it cannot regress unnoticed.
 **Technique.** `docker compose` stack; `EXPLAIN ANALYZE` for query plans.
 
 This level exists because of a defect. **DEF-002 broke every listing endpoint
-with a SQL syntax error, and every unit test still passed** — fakes never execute
+with a SQL syntax error, and every unit test still passed**, fakes never execute
 SQL. Unit tests verify logic; integration tests verify that the parts fit
 together. Neither substitutes for the other, and this project has the scar to
 prove it.
@@ -112,7 +112,7 @@ Also at this level:
   documented path must have a route. Both fail the build. They have already
   caught two undocumented endpoints before commit.
 - **Index validation.** `EXPLAIN ANALYZE` against 155,000 books and 38,000
-  members. Two defects (DEF-012, DEF-013) were found this way — neither visible
+  members. Two defects (DEF-012, DEF-013) were found this way, neither visible
   in the schema, neither catchable by a functional test, because both queries
   returned correct rows all along, just slowly.
 
@@ -131,7 +131,7 @@ requests to borrow one copy**, checked against the database afterwards.
 
 Acceptance asks a different question from system testing: not "does the endpoint
 work" but **"does this system model Hezekiah Oluwasanmi Library"**. A system can
-pass every functional test and still be wrong about the library — by lending a
+pass every functional test and still be wrong about the library, by lending a
 dictionary, or by treating five copies of *Clean Code* as five unrelated books.
 
 ---
@@ -144,8 +144,8 @@ Identifiers are stable and traceable. `.ilana/traceability.csv` is the register.
 
 | ID | Test | Requirement | Expected |
 |---|---|---|---|
-| TC-001 | Wing derived from LCC class A–J | DOM-003 | `South` |
-| TC-002 | Wing derived from LCC class K–Z | DOM-003 | `North` |
+| TC-001 | Wing derived from LCC class A to J | DOM-003 | `South` |
+| TC-002 | Wing derived from LCC class K to Z | DOM-003 | `North` |
 | TC-003 | A non-letter class mark | DOM-003 | `Unknown` |
 | TC-004 | `circulating` copy is borrowable | DOM-004 | true |
 | TC-005 | `reference_only` is not borrowable or reservable | DOM-004 | false, false |
@@ -218,7 +218,7 @@ Identifiers are stable and traceable. `.ilana/traceability.csv` is the register.
 |---|---|---|---|
 | TC-068 | Every route appears in the OpenAPI spec | REQ-073 | 29/29 |
 | TC-069 | Every documented path has a route | REQ-073 | no phantoms |
-| TC-070 | Migrations apply to an empty database | — | schema created |
+| TC-070 | Migrations apply to an empty database | | schema created |
 | TC-071 | Duplicate accession number rejected by constraint | I-06 | unique violation |
 | TC-072 | Title search uses the trigram index at scale | NFR-001 | `Bitmap Index Scan` |
 | TC-073 | Member search combines three indexes | NFR-001 | `BitmapOr` |
@@ -265,7 +265,7 @@ Run as a walkthrough at the defence. Each is phrased as the library would.
 | TC-102 | A student cannot borrow a dictionary from the Reference Room | DOM-004 |
 | TC-103 | A student joins the queue for a fully-borrowed title and is notified when a copy returns | REQ-055, REQ-058 |
 | TC-104 | A librarian lists overdue loans and sees who holds what | REQ-052, REQ-054 |
-| TC-105 | A book lost while on loan is recorded as lost — **without faking a return** | I-04 |
+| TC-105 | A book lost while on loan is recorded as lost, **without faking a return** | I-04 |
 
 ---
 
@@ -288,7 +288,7 @@ assertion in the run regresses.
 | System-level concurrency (TC-076) | exactly 1 loan | ✅ |
 
 **Suspension.** Testing stops if the schema fails to migrate, or if a defect of
-severity Critical is found — that defect is fixed before the run continues.
+severity Critical is found, that defect is fixed before the run continues.
 
 ## 9. Test deliverables
 
@@ -335,7 +335,7 @@ part**, and the honest answer to "what did your testing miss":
 | Found by | Defects | Note |
 |---|---|---|
 | Unit test | DEF-001 | Before the code ever met a database |
-| First run against real Postgres | DEF-002, DEF-003 | **Every unit test passed while every listing endpoint returned 500** — fakes never execute SQL |
+| First run against real Postgres | DEF-002, DEF-003 | **Every unit test passed while every listing endpoint returned 500**: fakes never execute SQL |
 | Review against a checklist | DEF-004..DEF-010 | Including the three most severe. Prevention outranks detection. |
 | `EXPLAIN ANALYZE` | DEF-012, DEF-013 | Invisible in the schema, uncatchable by a functional test: the queries were correct all along, just slow |
 

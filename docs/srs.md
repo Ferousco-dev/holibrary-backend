@@ -1,7 +1,7 @@
 # Software Requirements Specification
-## Group 4 — Online Library Management System
+## Group 4: Online Library Management System
 
-**Course:** SEN 106 / SEN 216 — Introduction to Web Technologies
+**Course:** SEN 106 / SEN 216, Introduction to Web Technologies
 **Institution:** Obafemi Awolowo University, Ile-Ife
 **Modelled on:** Hezekiah Oluwasanmi Library (HOL)
 **Document status:** Baseline, Phase 01
@@ -22,8 +22,8 @@ The system is a **modernised Online Public Access Catalogue (OPAC) with an integ
 circulation module**. It digitises two functions that HOL currently performs with a card
 catalogue and a paper register at the Loans desk:
 
-1. **Discovery** — answering "does the library have this book, is a copy free, and where is it?"
-2. **Custody** — recording which registered member physically holds which copy, from when, and until when.
+1. **Discovery**: answering "does the library have this book, is a copy free, and where is it?"
+2. **Custody**: recording which registered member physically holds which copy, from when, and until when.
 
 The system does **not** deliver book content. It is an inventory-and-custody system for
 physical volumes, not a digital library.
@@ -37,14 +37,14 @@ items are surfaced for visibility only.
 ### 1.4 Definitions
 | Term | Meaning |
 |---|---|
-| **Book** | A bibliographic record — one title, author, edition. Shared by all its copies. |
+| **Book** | A bibliographic record, one title, author, edition. Shared by all its copies. |
 | **Copy** | One physical volume on a shelf, individually identified. |
 | **Call number / class mark** | LCC code locating a title's subject, e.g. `DT 515.15 .Ob21`. Identical across all copies of a title. |
 | **Accession number** | Number assigned to a physical item on arrival. **Unique to a single copy.** |
 | **Loan** | A record binding a member to a copy, with borrow date, due date, return date and status. |
 | **Member** | A person registered in person at the library and issued a library card. |
 | **HOL** | Hezekiah Oluwasanmi Library. |
-| **LCC** | Library of Congress Classification — the scheme in use at HOL. |
+| **LCC** | Library of Congress Classification, the scheme in use at HOL. |
 
 ### 1.5 Sources of requirements
 - The project brief issued to Group 4.
@@ -80,7 +80,7 @@ desk, exactly as they are today.
 | `circulating` | Yes | Main lending collection |
 | `reference_only` | No | Reference collection is shelved in the Reference Room for consultation |
 | `on_display` | No, but reservable | Recent Accessions "may not be borrowed while on display but may be reserved at the Loans desk" |
-| `restricted` | No | Africana, OAU Publications, Conservation Room, Serials — request-form access |
+| `restricted` | No | Africana, OAU Publications, Conservation Room, Serials, request-form access |
 
 ### 2.4 Assumptions and constraints
 - Backend in **Go**, containerised with Docker, deployed to Render behind Cloudflare.
@@ -98,11 +98,11 @@ the system models a library that does not exist.
 |---|---|
 | DOM-001 | Classification shall use the **Library of Congress Classification** scheme, not Dewey. HOL uses LCC. |
 | DOM-002 | A call number is shared by all copies of a title; an **accession number is unique to one physical copy**. Three copies of a title share a class number and hold three different accession numbers. |
-| DOM-003 | Shelf location shall be derived from the call number's LCC letter: classes **A–J are in the South wing**, classes **K–Z are in the North wing**. |
+| DOM-003 | Shelf location shall be derived from the call number's LCC letter: classes **A to J are in the South wing**, classes **K to Z are in the North wing**. |
 | DOM-004 | Not every item circulates. Reference, serials, on-display and restricted collections shall not be borrowable. |
 | DOM-005 | Borrowing privileges shall vary by member category. HOL grants postgraduates and senior staff access that undergraduates do not have. |
 | DOM-006 | Membership shall originate in person. Users present a university identity card and library card and sign a register. The system shall not offer public self-registration. |
-| DOM-007 | The catalogue shall provide **at least three access points — author, title and subject** — mirroring the card catalogue and HOL's OPAC, which searches "author, title and subject entries, keywords in titles". |
+| DOM-007 | The catalogue shall provide **at least three access points, author, title and subject**: mirroring the card catalogue and HOL's OPAC, which searches "author, title and subject entries, keywords in titles". |
 | DOM-008 | Borrowing history shall be preserved after return. A returned loan is closed, never deleted. |
 | DOM-009 | Member identity and borrowing history are personal data under Nigerian data protection law. A borrowing history is a reading-habits profile and shall be treated as sensitive. |
 
@@ -280,6 +280,6 @@ authoritative record.
 | Item | Status |
 |---|---|
 | Renewals | Deferred to v2 (DEC-009) |
-| Fines for overdue items | Out of scope — follows from excluding payments |
+| Fines for overdue items | Out of scope, follows from excluding payments |
 | Inter-library loan | Out of scope for v1 |
 | Reservation expiry period | Configurable; default to be set at design time |

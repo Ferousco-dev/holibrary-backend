@@ -99,7 +99,7 @@ func TestRolesCreatableBy(t *testing.T) {
 //
 // A title held in two or more circulating copies always keeps one on the shelf,
 // so a reader who walks in can still consult it. A single-copy title circulates
-// normally — retaining it would mean nobody could ever read it, which at HOL
+// normally -- retaining it would mean nobody could ever read it, which at HOL
 // would strand most of the Africana and OAU Publications holdings.
 func TestBorrowableCount(t *testing.T) {
 	cases := []struct {

@@ -8,7 +8,7 @@
 //
 // What this is NOT: an AI model. There is no training, no learned weights and no
 // inference. The behaviour model in model.json is a set of hand-chosen
-// probabilities — closer to the loot tables in a game than to a neural network.
+// probabilities -- closer to the loot tables in a game than to a neural network.
 // Calling it AI would be a claim nobody could defend, so it is not called that
 // anywhere in this codebase.
 //

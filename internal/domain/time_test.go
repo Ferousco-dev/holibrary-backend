@@ -71,7 +71,7 @@ func TestLoanPeriodIsAnInstantNotAWallClockReading(t *testing.T) {
 	}
 
 	borrowedUTC := time.Date(2026, 9, 3, 18, 15, 0, 0, time.UTC)
-	borrowedLagos := borrowedUTC.In(loc) // 19:15 WAT — the same instant
+	borrowedLagos := borrowedUTC.In(loc) // 19:15 WAT -- the same instant
 
 	dueFromUTC := borrowedUTC.Add(terms.LoanPeriod)
 	dueFromLagos := borrowedLagos.Add(terms.LoanPeriod)

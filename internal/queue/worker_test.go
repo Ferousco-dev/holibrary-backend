@@ -177,7 +177,7 @@ func TestPushFansOutToEveryRegisteredDevice(t *testing.T) {
 	}
 }
 
-// A dead device must be retired, not retried forever — and it must not stop the
+// A dead device must be retired, not retried forever -- and it must not stop the
 // member's working device from being told.
 func TestPushRetiresADeadDeviceAndStillDelivers(t *testing.T) {
 	outbox := &fakeOutbox{

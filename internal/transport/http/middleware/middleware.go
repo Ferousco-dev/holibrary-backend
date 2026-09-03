@@ -270,8 +270,8 @@ func (s *statusRecorder) WriteHeader(code int) {
 
 // Logger writes one structured line per request.
 //
-// Recorded: method, route, status, duration, request id, and — once the request
-// has been authenticated — the caller's id and role. That is enough to answer
+// Recorded: method, route, status, duration, request id, and -- once the request
+// has been authenticated -- the caller's id and role. That is enough to answer
 // "what happened to this member's request at 18:31" from the logs alone, and
 // enough to correlate a log line with an audit entry.
 //

@@ -37,7 +37,7 @@ func NewCatalogueService(b CatalogueStore) *CatalogueService { return &Catalogue
 var callNumberPattern = regexp.MustCompile(`^[A-Z]{1,3}\s?\d`)
 
 // Search runs a catalogue query across the access points the card catalogue has
-// always offered — author, title and subject (DOM-007, REQ-028..035).
+// always offered -- author, title and subject (DOM-007, REQ-028..035).
 func (s *CatalogueService) Search(ctx context.Context, p postgres.SearchParams) ([]domain.Book, int, error) {
 	// Bound the page size so a single request cannot ask for the whole
 	// collection and exhaust the free-tier database's memory.

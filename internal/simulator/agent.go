@@ -131,8 +131,8 @@ type apiError struct {
 // call makes one API request and decodes the reply.
 //
 // A 4xx is not treated as a failure. Most of them are the library correctly
-// refusing something — a member at their limit, a reference volume, a retained
-// last copy — and those refusals are the most interesting output of a pass:
+// refusing something -- a member at their limit, a reference volume, a retained
+// last copy -- and those refusals are the most interesting output of a pass:
 // they are the business rules firing. Only transport errors and 5xx count as
 // the system being broken.
 func (a *Agent) call(ctx context.Context, method, path string, body, out any, token string) (int, string, error) {

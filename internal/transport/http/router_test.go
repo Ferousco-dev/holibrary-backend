@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // The documentation is only useful if it describes the API that actually exists.
@@ -78,4 +80,38 @@ func TestSpecDocumentsNoPhantomRoutes(t *testing.T) {
 			t.Errorf("the specification documents %s, but no route serves it", m[1])
 		}
 	}
+}
+
+// The specification must be valid YAML.
+//
+// The two tests above compare the spec and the router as text, which is what
+// makes them cheap. It is also what let a malformed spec pass: a tidy-up script
+// once mangled the inline flow mappings and both tests stayed green, because
+// the strings they look for were still present in a file no parser would
+// accept. Text matching cannot tell a document from its wreckage.
+func TestSpecIsValidYAML(t *testing.T) {
+	raw, err := os.ReadFile("docs/openapi.yaml")
+	if err != nil {
+		t.Fatalf("reading spec: %v", err)
+	}
+
+	var doc map[string]any
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("the OpenAPI specification is not valid YAML: %v", err)
+	}
+
+	paths, ok := doc["paths"].(map[string]any)
+	if !ok || len(paths) == 0 {
+		t.Fatal("the specification declares no paths")
+	}
+
+	// A structural check as well as a syntactic one: every path must carry at
+	// least one operation, or the document parses while describing nothing.
+	for name, node := range paths {
+		ops, ok := node.(map[string]any)
+		if !ok || len(ops) == 0 {
+			t.Errorf("path %s declares no operations", name)
+		}
+	}
+	t.Logf("%d paths parsed", len(paths))
 }

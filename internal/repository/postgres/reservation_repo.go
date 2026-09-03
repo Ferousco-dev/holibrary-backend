@@ -109,7 +109,7 @@ const reservationSelect = `
 	  FROM reservations r JOIN books b ON b.id = r.book_id`
 
 // ListForUser returns a member's own reservations, with their place in each
-// queue computed at read time rather than stored — a stored position would go
+// queue computed at read time rather than stored -- a stored position would go
 // stale the moment anyone ahead cancelled.
 func (r *ReservationRepo) ListForUser(ctx context.Context, userID uuid.UUID) ([]domain.Reservation, error) {
 	rows, err := r.db.Query(ctx, reservationSelect+`

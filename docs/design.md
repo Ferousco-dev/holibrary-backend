@@ -1,5 +1,5 @@
 # Software Design Description
-## HOLibrary Backend — Group 4 Online Library Management System
+## HOLibrary Backend: Group 4 Online Library Management System
 
 **Module path:** `github.com/Ferousco-dev/holibrary-backend`
 **Repository:** `holibrary-backend` (display name: HOLibrary Backend)
@@ -16,7 +16,7 @@ This is a deliberate choice, and the reason matters at defence. The project brie
 against "unnecessary enterprise complexity". Microservices would add network partitions,
 distributed transactions and service discovery to a system whose entire dataset fits in
 one Postgres instance. The genuinely hard problem here is *transactional integrity on a
-single shared resource* (the last available copy) — which is easier, not harder, in one
+single shared resource* (the last available copy), which is easier, not harder, in one
 process against one database.
 
 ```
@@ -72,11 +72,11 @@ so the API surface is the HTTP API and nothing else.
 
 ### 2.1 The central design decision (DOM-002)
 
-`book` and `copy` are separate tables. This is not normalisation for its own sake — it is
+`book` and `copy` are separate tables. This is not normalisation for its own sake; it is
 how Hezekiah Oluwasanmi Library actually works:
 
-- **`books.call_number`** — the LCC class mark, e.g. `DT 515.15 .Ob21`. **Shared by every copy.**
-- **`copies.accession_number`** — assigned on arrival. **Unique to one physical volume.**
+- **`books.call_number`**: the LCC class mark, e.g. `DT 515.15 .Ob21`. **Shared by every copy.**
+- **`copies.accession_number`**: assigned on arrival. **Unique to one physical volume.**
 
 Five copies of *Clean Code* are one `books` row and five `copies` rows.
 
@@ -206,7 +206,7 @@ using an index by looking at the schema, only by asking the planner.
 **1. An index Postgres will not use is worse than no index.** At 5,000 books the
 planner *correctly* ignored the trigram index and scanned the table: at that size
 a scan is genuinely cheaper. The index only started paying at around 150,000
-rows. HOL holds over 750,000 volumes, so the index is justified — but by the
+rows. HOL holds over 750,000 volumes, so the index is justified, but by the
 target scale, not by the developer's laptop. Had we tested only on seed data and
 declared victory, we would have shipped an unused index and believed search was
 fast.
@@ -214,14 +214,14 @@ fast.
 **2. An `OR` chain is only as indexable as its least-indexed branch.** The member
 search filters `full_name OR identifier OR email`. With trigram indexes on the
 first two and nothing on `email`, Postgres could not use a `BitmapOr` and fell
-back to scanning all 38,000 members — *even though two thirds of the predicate
+back to scanning all 38,000 members, *even though two thirds of the predicate
 was indexed*. Adding the third index cut the query from 22.5 ms to 3.1 ms.
 `email` is `citext`, so the index is built on `(email::text)` and the query casts
 to match; without the matching expression the index is invisible to the planner.
 
 **3. A B-tree cannot serve a leading wildcard.** `ILIKE '%clean%'` has no prefix
 to seek on. This project shipped an index literally named `authors_name_trgm_idx`
-that was in fact `btree(lower(name))` — it could never have served the query it
+that was in fact `btree(lower(name))`: it could never have served the query it
 was created for, and never did. Corrected to a real GIN trigram index (DEF-012).
 
 ### The indexes, and why each exists
@@ -234,9 +234,9 @@ was created for, and never did. Corrected to a real GIN trigram index (DEF-012).
 | | `gin(title)` trigram | `title=` substring filter |
 | | `(isbn13) WHERE NOT NULL`, `(call_number)`, `(lcc_class)` | exact and prefix lookups |
 | `authors` | `gin(name)` trigram | `author=` substring filter |
-| `copies` | `UNIQUE(accession_number)` | invariant I-06 — one volume, one number |
+| `copies` | `UNIQUE(accession_number)` | invariant I-06, one volume, one number |
 | | `(book_id, status, loan_policy)` | the availability count, which filters on all three |
-| `loans` | **`UNIQUE(copy_id) WHERE returned_at IS NULL`** | **invariant I-01** — the partial unique index that makes two open loans on one copy unstorable |
+| `loans` | **`UNIQUE(copy_id) WHERE returned_at IS NULL`** | **invariant I-01**: the partial unique index that makes two open loans on one copy unstorable |
 | | `(due_at) WHERE returned_at IS NULL` | overdue detection, over open loans only |
 | | `(user_id) WHERE returned_at IS NULL` | the borrowing-limit check and `/me/loans` |
 | | `(user_id, borrowed_at DESC)` | full borrowing history |
@@ -249,8 +249,8 @@ was created for, and never did. Corrected to a real GIN trigram index (DEF-012).
 
 **Partial indexes carry their weight here.** A library accumulates returned loans
 forever, but almost every question concerns open ones. `WHERE returned_at IS
-NULL` keeps those indexes proportional to books currently out — a few hundred
-rows — rather than to the library's entire history.
+NULL` keeps those indexes proportional to books currently out, a few hundred
+rows, rather than to the library's entire history.
 
 ### Deliberately not indexed
 
@@ -261,7 +261,7 @@ rows — rather than to the library's entire history.
 | `notifications(user_id, read_at)` | No member-facing notification list exists yet. The column is there for when one does. |
 | `import_jobs(*)` | No such table. CSV import is a synchronous request that returns its own summary. |
 | `users(role, status)` | No query filters on both together. |
-| `books(created_at)` | No "recently added" query exists. HOL does display Recent Accessions, so this is a *likely* future need — and a likely need is not a need. |
+| `books(created_at)` | No "recently added" query exists. HOL does display Recent Accessions, so this is a *likely* future need, and a likely need is not a need. |
 | `books(author)` | Authors are a join table, not a column, because a book may have several. |
 
 ### Re-checking
@@ -297,7 +297,7 @@ UPDATE copies SET status = 'on_loan'
 Zero rows returned means another transaction won. The loser gets `409 Conflict`, never a
 double loan. There is no window between check and write because there is no separate check.
 
-**2. A partial unique index — the real guarantee.**
+**2. A partial unique index, the real guarantee.**
 ```sql
 CREATE UNIQUE INDEX one_active_loan_per_copy
     ON loans (copy_id) WHERE returned_at IS NULL;
@@ -327,7 +327,7 @@ All three run in one transaction. It commits or none of it happened.
 |---|---|---|
 | Password storage | Argon2id, per-password salt, tuned cost | NFR-002 |
 | Sessions | JWT access token 15 min; opaque refresh token 7 days, **hash stored**, revocable | NFR-003, REQ-006 |
-| Authorisation | Middleware resolves role from token; every protected route declares its required role. Ownership checks in the service layer — a member reads only their own loans | NFR-004, REQ-062 |
+| Authorisation | Middleware resolves role from token; every protected route declares its required role. Ownership checks in the service layer, a member reads only their own loans | NFR-004, REQ-062 |
 | Brute force | Two limits: **5/min per account** (precise; an attacker cannot change the account they are attacking) and 120/min per network (coarse; a campus NAT is shared). Redis-backed, so limits survive a restart. Proxy headers are trusted only when explicitly configured, because anyone reaching the origin directly can forge them (DEF-019). | NFR-005 |
 | Session invalidation | `users.tokens_invalid_before`, stamped in the same statement as the new password hash. Revoking tokens as a separate step left a window for a concurrent refresh to mint a surviving session (DEF-015). | I-14 |
 | Enumeration by timing | The no-such-account path runs the same Argon2 computation as a real verification. Matching error text is not enough when one branch is 11 ms slower (DEF-017). | DOM-009 |
@@ -340,7 +340,7 @@ All three run in one transaction. It commits or none of it happened.
 | CORS | Explicit origin allowlist. No wildcard | NFR-016 |
 
 **Enumeration note:** password reset (REQ-004) returns the same response whether or not the
-email exists. Otherwise the endpoint becomes a directory of registered students — a real
+email exists. Otherwise the endpoint becomes a directory of registered students, a real
 privacy leak given DOM-009.
 
 ---
@@ -357,7 +357,7 @@ decided per-file.
 | # | Rule |
 |---|---|
 | 1 | **Canonical timezone is UTC.** Everything stored and compared is UTC. |
-| 2 | **Display timezone is `Africa/Lagos`** — by name, never as `UTC+1`. A name stays correct if the offset ever changes. |
+| 2 | **Display timezone is `Africa/Lagos`**: by name, never as `UTC+1`. A name stays correct if the offset ever changes. |
 | 3 | **PostgreSQL uses `TIMESTAMPTZ`** for every event time. Never plain `TIMESTAMP`. |
 | 4 | **Go uses `time.Time`**, generated with `time.Now().UTC()`. |
 | 5 | **APIs exchange RFC 3339**: `2026-09-17T18:15:00Z`. Never `17/09/26 6:15`. |
@@ -372,7 +372,7 @@ decided per-file.
 
 `TIMESTAMPTZ` stores an absolute instant. `TIMESTAMP` stores a wall-clock
 reading with no zone attached, so a due date written in Lagos and read from a
-server running UTC is silently an hour out — and nothing raises an error.
+server running UTC is silently an hour out, and nothing raises an error.
 Silent wrongness is the worst failure mode available, so the type that cannot
 produce it is the one used. All 21 timestamp columns in this schema are
 `TIMESTAMPTZ`.
@@ -420,7 +420,7 @@ queued when the loan is created rather than by a nightly scan of every open loan
 
 1. **The production image is `FROM scratch`** and carries no
    `/usr/share/zoneinfo`, so `time.LoadLocation("Africa/Lagos")` would fail
-   there and nowhere else — passing every test on a laptop and breaking only
+   there and nowhere else, passing every test on a laptop and breaking only
    once deployed. `import _ "time/tzdata"` embeds the database in the binary
    (+0.5 MB).
 2. **`time.Local = time.UTC` at startup**, so the process behaves identically
@@ -506,7 +506,7 @@ service --(same tx)--> outbox row --> worker --> Resend (email) / FCM (push)
 
 The transactional outbox means a due-date reminder is never queued for a loan that rolled
 back. Redis carries the worker's scheduling and the rate limiter; Postgres remains the source
-of truth. This is why Redis is in the stack — a defensible reason, not a name (RSK-003).
+of truth. This is why Redis is in the stack, a defensible reason, not a name (RSK-003).
 
 ---
 
@@ -545,4 +545,4 @@ Red build blocks merge.
 
 ## 9. Deferred
 Renewals (DEC-009). Inter-library loan. Fines. Full-text search beyond Postgres `tsvector`
-— revisit only if measured performance fails NFR-001, per Article 10.
+, revisit only if measured performance fails NFR-001, per Article 10.

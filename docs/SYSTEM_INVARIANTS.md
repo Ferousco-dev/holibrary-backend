@@ -5,7 +5,7 @@ Rules this system is **never** allowed to violate.
 An invariant is not a feature and not a preference. It is a statement that must
 be true of the data at every instant, whatever the code does, whatever order
 requests arrive in, and whatever a client sends. If one of these is ever false,
-the library's records are wrong about the physical world — and wrong records are
+the library's records are wrong about the physical world, and wrong records are
 worse than a broken page, because nobody notices.
 
 Each invariant below names **where it is enforced**. The rule is that no
@@ -23,7 +23,7 @@ believes one physical book is simultaneously with two students.
 | Layer | Mechanism |
 |---|---|
 | **Database** | `CREATE UNIQUE INDEX one_active_loan_per_copy ON loans (copy_id) WHERE returned_at IS NULL` |
-| **Database** | Atomic claim: `UPDATE copies SET status='on_loan' WHERE id=$1 AND status='available' AND loan_policy='circulating' RETURNING id` — zero rows means the caller lost the race |
+| **Database** | Atomic claim: `UPDATE copies SET status='on_loan' WHERE id=$1 AND status='available' AND loan_policy='circulating' RETURNING id`: zero rows means the caller lost the race |
 | **Service** | Both statements plus the limit check in one transaction, **with a row lock on the borrower** (`SELECT ... FOR UPDATE`). A transaction alone is not enough: competing borrows claim different copies, so they never collide, and each would count the other's uncommitted loan as absent (DEF-014). |
 | **Test** | 20 concurrent borrows of one copy → 1 × 201, 19 × 409, exactly 1 loan row |
 
@@ -40,7 +40,7 @@ column on `loans` to contradict it, so the two can never disagree.
 |---|---|
 | **Schema** | Status is derived from `returned_at`, never stored |
 | **Database** | `CHECK (returned_at IS NULL OR returned_at >= borrowed_at)` |
-| **Database** | Return is `UPDATE ... WHERE id=$1 AND returned_at IS NULL` — a second return matches no rows |
+| **Database** | Return is `UPDATE ... WHERE id=$1 AND returned_at IS NULL`: a second return matches no rows |
 
 This is why `status = "returned", returned_at = NULL` is not a bug we guard
 against: it is a state the schema cannot represent.
@@ -53,7 +53,7 @@ Lost, damaged and withdrawn volumes cannot be lent.
 | Layer | Mechanism |
 |---|---|
 | **Database** | The claim's `WHERE` requires `status='available' AND loan_policy='circulating'` |
-| **Domain** | `LoanPolicy.IsBorrowable()` — only `circulating` is true |
+| **Domain** | `LoanPolicy.IsBorrowable()`: only `circulating` is true |
 | **Test** | Borrowing a dictionary returns `COPY_NOT_BORROWABLE` |
 
 ## I-04 · A copy's status follows a legal path
@@ -70,7 +70,7 @@ and put a book on the shelf that a student is still holding.
    withdrawn ──▶ (terminal)
 ```
 
-Lending is **not** a status edit — it goes through circulation so the loan and
+Lending is **not** a status edit, it goes through circulation so the loan and
 the copy change together. Marking a borrowed copy lost or damaged closes its
 loan in the same transaction, so no librarian ever has to record a fake return
 in order to write down a real loss.
@@ -106,7 +106,7 @@ still be able to say who held a copy last session.
 
 | Layer | Mechanism |
 |---|---|
-| **Database** | `loans.user_id` and `loans.copy_id` are `ON DELETE RESTRICT` — a member or copy with history cannot be deleted out from under it |
+| **Database** | `loans.user_id` and `loans.copy_id` are `ON DELETE RESTRICT`: a member or copy with history cannot be deleted out from under it |
 | **Service** | Books are **archived**, never deleted |
 | **Schema** | Return sets `returned_at`; no code path deletes a loan |
 
@@ -125,7 +125,7 @@ until the clock moves.
 | **Query** | `count(*) FILTER (WHERE status='available' AND loan_policy='circulating')` |
 | **Domain** | `IsOverdueAt(now)` = `returned_at IS NULL AND now > due_at` |
 
-`available_copies = -1` is not defended against — it is **unrepresentable**.
+`available_copies = -1` is not defended against; it is **unrepresentable**.
 
 ## I-09 · Redis may never override PostgreSQL
 
@@ -143,7 +143,7 @@ here: the cache that would go stale does not exist.
 External API says a book exists   ≠   OAU owns a copy of it
 ```
 
-The external API supplies **bibliographic metadata only** — title, author, ISBN,
+The external API supplies **bibliographic metadata only**: title, author, ISBN
 publisher. Whether HOL holds it, how many copies, which shelf, who has one, and
 whether it is available is answered **exclusively** from `copies` in our own
 database.
@@ -162,8 +162,8 @@ limited, or returns nonsense.
 |---|---|
 | **Middleware** | Role comes from the signed token, never from a body or query field |
 | **Service** | A librarian may create **members only**; staff accounts require an administrator |
-| **Handlers** | Dedicated request structs with `DisallowUnknownFields` — there is no field to smuggle `"role":"admin"` through |
-| **Routes** | A member reads their own record via `/me`, never `/members/{id}` — there is no id to tamper with, so IDOR has no surface |
+| **Handlers** | Dedicated request structs with `DisallowUnknownFields`: there is no field to smuggle `"role":"admin"` through |
+| **Routes** | A member reads their own record via `/me`, never `/members/{id}`: there is no id to tamper with, so IDOR has no surface |
 
 ## I-12 · Client clocks never determine event time
 
@@ -196,7 +196,7 @@ against an attacker who already held one.
 
 Revocation on its own was not enough, and this document said it was. The password
 update and the revocation were separate statements, so a concurrent
-`/auth/refresh` could consume an old token and mint a new one in the gap —
+`/auth/refresh` could consume an old token and mint a new one in the gap
 leaving an attacker a live session created by the very act meant to end it. A
 version stamp has no gap to race, because nothing needs revoking (DEF-015).
 
@@ -208,7 +208,7 @@ refuses every other route.
 
 ## I-16 · Pagination is stable
 
-Every list query orders on a **total order** — the sort column plus the primary
+Every list query orders on a **total order**: the sort column plus the primary
 key. Without the tie-break, rows sharing a title or a due date order
 arbitrarily, so page 2 can repeat a row from page 1 and silently drop another.
 

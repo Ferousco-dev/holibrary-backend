@@ -44,7 +44,7 @@ func NewReservationService(r ReservationStore, n Notifier) *ReservationService {
 
 // Reserve puts a member in the queue for a title (REQ-055, REQ-056).
 //
-// Members place their own reservations — unlike borrowing, which is recorded by
+// Members place their own reservations -- unlike borrowing, which is recorded by
 // staff at the desk. Joining a queue commits nothing physical, so there is no
 // reason to make someone walk to the library to do it.
 func (s *ReservationService) Reserve(ctx context.Context, bookID, memberID uuid.UUID) (domain.Reservation, error) {

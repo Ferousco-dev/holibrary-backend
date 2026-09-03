@@ -45,7 +45,7 @@ type Rendered struct {
 // Templates are Go string building rather than html/template files: there are
 // six of them, they are plain text, and a template directory would be another
 // thing to keep in step with the binary. Times are shown in Africa/Lagos,
-// because a due date is the one thing a member must not misread — the stored
+// because a due date is the one thing a member must not misread -- the stored
 // value stays UTC.
 func Render(m Message) Rendered {
 	name := valueOr(m.Payload, "full_name", m.Name)

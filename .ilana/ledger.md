@@ -1,4 +1,4 @@
-# Ìlànà Ledger — Group 4 Online Library Management System
+# Ìlànà Ledger, Group 4 Online Library Management System
 
 Append-only. Newest at the bottom. Entries are never edited, only superseded.
 
@@ -103,7 +103,7 @@ CONCURRENCY, REQ-047 and NFR-009, measured rather than asserted:
   Result: 1 x HTTP 201, 19 x HTTP 409 COPY_NOT_AVAILABLE.
   Loans recorded against that copy: exactly 1. Copy status: on_loan.
 
-## 2026-09-03 | 02 | architect | DESIGN AMENDED — DES-010
+## 2026-09-03 | 02 | architect | DESIGN AMENDED, DES-010
 Time, date and timezone policy added to docs/design.md §4A on stakeholder input.
 Eleven rules: UTC canonical, Africa/Lagos for display by name, TIMESTAMPTZ for
 every event time, RFC 3339 on the wire, server-authoritative timestamps,
