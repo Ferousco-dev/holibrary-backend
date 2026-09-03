@@ -214,3 +214,26 @@ asserting security properties rather than happy paths: that an unknown account
 and a wrong password are indistinguishable, that a suspended member can neither
 sign in nor refresh, that refresh tokens are stored hashed and rotated, and that
 changing or resetting a password ends every other session.
+
+## 2026-09-03 | 04 | constructor | DEC-018 LAST-COPY RETENTION
+Requested by the project owner, who believed the rule came from the LIB 001
+material. It does not: the word "borrow" appears three times in 402 pages, and
+the only restriction stated is that Recent Accessions on display may not be
+borrowed but may be reserved. That was already implemented as the on_display
+loan policy. Reported to the owner before building, and adopted as an explicit
+policy decision instead of an attributed one.
+
+Option A of three was chosen: retention applies only to titles held in two or
+more circulating copies. A blanket rule would make every single-copy title
+permanently unborrowable and strand most of the Africana holdings.
+
+Enforced inside the borrow transaction after the copy is claimed, so two
+librarians cannot each believe they are taking the second-to-last copy. Stock
+counts only copies on the shelf or out, so losing a copy relaxes the rule rather
+than tightening it. Search ?available=true and the reservation eligibility check
+both key off the borrowable count rather than shelf presence, so a retained copy
+neither looks borrowable nor blocks a queue.
+
+Verified: 2-copy title lends one then refuses LAST_COPY_RETAINED; 1-copy title
+lends normally; ?available=true drops the retained title; a member may queue for
+a title whose only free copy is retained.

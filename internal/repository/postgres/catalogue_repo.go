@@ -48,7 +48,13 @@ const availabilitySelect = `
 	  WHERE c.book_id = b.id AND c.status = 'on_loan')                       AS on_loan,
 	(SELECT count(*) FROM copies c
 	  WHERE c.book_id = b.id AND c.status = 'available'
-	    AND c.loan_policy <> 'circulating')                                  AS not_for_loan`
+	    AND c.loan_policy <> 'circulating')                                  AS not_for_loan,
+	-- The lending stock: circulating copies on the shelf or out. Lost, damaged
+	-- and withdrawn volumes are not stock, so losing a copy correctly relaxes
+	-- the last-copy retention rule rather than tightening it (DEC-018).
+	(SELECT count(*) FROM copies c
+	  WHERE c.book_id = b.id AND c.loan_policy = 'circulating'
+	    AND c.status IN ('available','on_loan'))                             AS stock`
 
 // bookFields and bookFrom are kept apart so the window-function count used for
 // pagination can be appended to the select list, before FROM. Concatenating it
@@ -77,7 +83,7 @@ func scanBook(row pgx.Row) (domain.Book, error) {
 		&b.Publisher, &b.PlaceOfPublication, &b.PublishedYear, &b.CallNumber,
 		&b.LCCClass, &b.Description, &b.Status, &b.Authors, &b.Subjects,
 		&b.Availability.TotalCopies, &b.Availability.Available,
-		&b.Availability.OnLoan, &b.Availability.NotForLoan)
+		&b.Availability.OnLoan, &b.Availability.NotForLoan, &b.Availability.Stock)
 	return b, err
 }
 
@@ -101,9 +107,17 @@ func (r *CatalogueRepo) Search(ctx context.Context, p SearchParams) ([]domain.Bo
 	   AND ($5 = '' OR b.isbn13 = $5 OR b.isbn10 = $5)
 	   AND ($6 = '' OR b.call_number ILIKE $6 || '%')
 	   AND ($7 = '' OR b.lcc_class = $7)
-	   AND (NOT $8 OR EXISTS (SELECT 1 FROM copies c
-	                           WHERE c.book_id = b.id AND c.status = 'available'
-	                             AND c.loan_policy = 'circulating'))
+	   -- "available" means a copy may actually leave the building, so the
+	      -- retained shelf copy does not make a title look borrowable (DEC-018).
+	   AND (NOT $8 OR (
+	         SELECT CASE WHEN count(*) FILTER (WHERE c.loan_policy = 'circulating'
+	                                             AND c.status IN ('available','on_loan')) < 2
+	                     THEN count(*) FILTER (WHERE c.loan_policy = 'circulating'
+	                                             AND c.status = 'available')
+	                     ELSE greatest(count(*) FILTER (WHERE c.loan_policy = 'circulating'
+	                                                      AND c.status = 'available') - 1, 0)
+	                END
+	           FROM copies c WHERE c.book_id = b.id) > 0)
 	 ORDER BY
 	   CASE WHEN $1 = '' THEN 0
 	        ELSE ts_rank(b.search_vector, plainto_tsquery('english', $1)) END DESC,
@@ -132,7 +146,8 @@ func (r *CatalogueRepo) Search(ctx context.Context, p SearchParams) ([]domain.Bo
 			&b.Publisher, &b.PlaceOfPublication, &b.PublishedYear, &b.CallNumber,
 			&b.LCCClass, &b.Description, &b.Status, &b.Authors, &b.Subjects,
 			&b.Availability.TotalCopies, &b.Availability.Available,
-			&b.Availability.OnLoan, &b.Availability.NotForLoan, &total); err != nil {
+			&b.Availability.OnLoan, &b.Availability.NotForLoan,
+			&b.Availability.Stock, &total); err != nil {
 			return nil, 0, translate(err)
 		}
 		books = append(books, b)

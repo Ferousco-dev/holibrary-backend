@@ -55,12 +55,29 @@ func (s *CatalogueService) Search(ctx context.Context, p postgres.SearchParams) 
 // copy is free, and which way to walk once inside the building.
 type BookView struct {
 	domain.Book
-	Wing        domain.Wing `json:"wing"`
-	IsAvailable bool        `json:"is_available"`
+	Wing domain.Wing `json:"wing"`
+	// IsAvailable means a copy may actually be taken away, not merely that one
+	// sits on the shelf.
+	IsAvailable bool `json:"is_available"`
+	// Borrowable is the shelf count minus any copy held back by the last-copy
+	// retention policy (DEC-018).
+	Borrowable int `json:"borrowable"`
+	// OnShelf tells a reader they can come and consult the title even when
+	// nothing may be borrowed.
+	OnShelf bool `json:"on_shelf"`
+	// ShelfCopyRetained explains why a title on the shelf cannot be borrowed.
+	ShelfCopyRetained bool `json:"shelf_copy_retained"`
 }
 
 func NewBookView(b domain.Book) BookView {
-	return BookView{Book: b, Wing: b.Wing(), IsAvailable: b.Availability.IsAvailable()}
+	a := b.Availability
+	return BookView{
+		Book: b, Wing: b.Wing(),
+		IsAvailable:       a.IsAvailable(),
+		Borrowable:        a.Borrowable(),
+		OnShelf:           a.OnShelf(),
+		ShelfCopyRetained: domain.RetainsAShelfCopy(a.Stock) && a.Available == 1,
+	}
 }
 
 func (s *CatalogueService) Get(ctx context.Context, id uuid.UUID) (BookView, []domain.Copy, error) {

@@ -78,6 +78,31 @@ HOL does not lend its whole collection, so neither does this system:
 | `on_display` | no | **yes** | Recent Accessions — *"may not be borrowed while on display but may be reserved at the Loans desk"* |
 | `restricted` | no | no | Africana, OAU Publications, Serials, Conservation |
 
+## Last-copy retention
+
+A title held in **two or more** circulating copies always keeps one on the shelf,
+so a reader who walks in can still consult it:
+
+```
+5 copies, 3 free  ->  2 borrowable, 1 stays
+2 copies, 1 free  ->  0 borrowable, it stays      LAST_COPY_RETAINED
+1 copy,   1 free  ->  1 borrowable                a lone copy still circulates
+```
+
+That last line is the important one. A blanket "never lend the last copy" would
+make every single-copy title permanently unborrowable — at HOL that would strand
+most of the Africana and OAU Publications holdings.
+
+**This is our stated policy, not a rule from the LIB 001 material.** That
+document restricts only the Reference, Recent Accessions, Serials, Africana and
+Conservation collections. Worth being precise about: a policy you chose and can
+justify is defensible; a policy you attribute to a document that does not contain
+it is not.
+
+The API distinguishes three things a reader cares about: `on_shelf` (you can come
+and read it), `borrowable` (you can take it away), and `shelf_copy_retained`
+(why a book that is present cannot be borrowed).
+
 ## Membership begins in the building
 
 There is no `POST /auth/register` and there never will be. At HOL a user

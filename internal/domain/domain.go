@@ -188,13 +188,30 @@ func (b Book) Wing() Wing {
 // (REQ-039).
 type Availability struct {
 	TotalCopies int `json:"total_copies"`
-	Available   int `json:"available"`
+	Available   int `json:"available"` // on the shelf
 	OnLoan      int `json:"on_loan"`
 	NotForLoan  int `json:"not_for_loan"` // reference, display, restricted
+
+	// Stock is the lending collection for this title: circulating copies that
+	// are either on the shelf or out. Lost, damaged and withdrawn volumes are
+	// not stock, so losing a copy correctly relaxes the retention rule.
+	Stock int `json:"-"`
 }
 
+// Borrowable is how many copies may actually leave the building now, after the
+// last-copy retention policy (DEC-018).
+func (a Availability) Borrowable() int { return BorrowableCount(a.Stock, a.Available) }
+
 // IsAvailable reports whether a reader could walk in and borrow this title now.
-func (a Availability) IsAvailable() bool { return a.Available > 0 }
+//
+// This is the borrowable count, not the shelf count: a title whose only free
+// copy is being retained is present in the library but cannot be taken away,
+// and telling a reader otherwise would send them on a wasted journey.
+func (a Availability) IsAvailable() bool { return a.Borrowable() > 0 }
+
+// OnShelf reports whether a copy can be consulted in the building, even if none
+// may be borrowed.
+func (a Availability) OnShelf() bool { return a.Available > 0 }
 
 // Copy is one physical volume, identified by the accession number the library
 // assigned when it arrived (DOM-002).
@@ -335,3 +352,29 @@ func (c CopyStatus) CanTransitionTo(next CopyStatus) bool {
 func (c CopyStatus) ClosesAnOpenLoan() bool {
 	return c == CopyLost || c == CopyDamaged
 }
+
+// LastCopyRetention decides how many of a title's copies may leave the building.
+//
+// A title held in two or more circulating copies always keeps one on the shelf,
+// so a reader who walks in can still consult it. This is a common academic
+// library practice and it is **our stated policy**, not a rule taken from the
+// LIB 001 material: that document restricts only the Reference, Recent
+// Accessions, Serials, Africana and Conservation collections, and says nothing
+// about last copies. Recorded as DEC-018 so the distinction survives.
+//
+// The threshold matters. A blanket "never lend the last copy" would make every
+// single-copy title permanently unborrowable, which at HOL would strand most of
+// the Africana and OAU Publications holdings. A title held in one copy therefore
+// circulates normally: retaining it would mean nobody could ever read it.
+func BorrowableCount(stock, available int) int {
+	if stock < 2 {
+		return available // a single-copy title circulates, or nobody could read it
+	}
+	if available <= 1 {
+		return 0 // the one on the shelf stays there
+	}
+	return available - 1
+}
+
+// RetainsAShelfCopy reports whether this title is subject to the retention rule.
+func RetainsAShelfCopy(stock int) bool { return stock >= 2 }

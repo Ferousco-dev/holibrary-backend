@@ -32,6 +32,7 @@ var (
 	ErrLoanLimitReached  = errors.New("borrowing limit reached for this member category")
 	ErrMemberNotActive   = errors.New("member account is not active")
 	ErrLoanAlreadyClosed = errors.New("that loan has already been returned")
+	ErrLastCopyRetained  = errors.New("the last available copy is kept on the shelf")
 	ErrNoCategory        = errors.New("member has no borrowing category")
 
 	// Reservations.

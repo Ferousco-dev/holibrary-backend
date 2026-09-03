@@ -97,6 +97,8 @@ var errorMap = []struct {
 		"That copy does not circulate and must be used in the library."},
 	{domain.ErrLoanAlreadyClosed, http.StatusConflict, "LOAN_ALREADY_CLOSED",
 		"That loan has already been returned."},
+	{domain.ErrLastCopyRetained, http.StatusConflict, "LAST_COPY_RETAINED",
+		"This is the last copy on the shelf and is kept in the library for reference. It can be consulted here, but not borrowed."},
 	{domain.ErrAlreadyReserved, http.StatusConflict, "ALREADY_RESERVED",
 		"You already have a reservation for this title."},
 	{domain.ErrCopiesAvailable, http.StatusConflict, "COPIES_AVAILABLE",

@@ -34,13 +34,15 @@ func (r *ReservationRepo) Create(ctx context.Context, bookID, userID uuid.UUID, 
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	// Does the library hold this title at all, and is any copy reservable?
-	var reservable, availableNow int
+	var reservable, stock, available int
 	err = tx.QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE loan_policy IN ('circulating','on_display')
 		                          AND status <> 'withdrawn'),
 		       count(*) FILTER (WHERE loan_policy = 'circulating'
+		                          AND status IN ('available','on_loan')),
+		       count(*) FILTER (WHERE loan_policy = 'circulating'
 		                          AND status = 'available')
-		  FROM copies WHERE book_id = $1`, bookID).Scan(&reservable, &availableNow)
+		  FROM copies WHERE book_id = $1`, bookID).Scan(&reservable, &stock, &available)
 	if err != nil {
 		return domain.Reservation{}, translate(err)
 	}
@@ -50,8 +52,12 @@ func (r *ReservationRepo) Create(ctx context.Context, bookID, userID uuid.UUID, 
 		// there is no queue to join because they never leave the building.
 		return domain.Reservation{}, domain.ErrNotReservable
 	}
-	if availableNow > 0 {
-		// Telling a member to wait for a book already on the shelf would send
+	// The test is whether a copy could actually be borrowed, not merely whether
+	// one is on the shelf: a title whose only free copy is being retained is
+	// present but cannot be taken away, so a queue for it is meaningful
+	// (DEC-018).
+	if domain.BorrowableCount(stock, available) > 0 {
+		// Telling a member to wait for a book they could borrow now would send
 		// them away from a library that has it.
 		return domain.Reservation{}, domain.ErrCopiesAvailable
 	}

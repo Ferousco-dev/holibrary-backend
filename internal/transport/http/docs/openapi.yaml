@@ -487,6 +487,15 @@ paths:
         | postgraduate | 4 | 21 days |
         | staff | 6 | 28 days |
 
+        **Last-copy retention.** A title held in **two or more** circulating
+        copies always keeps one on the shelf, so a reader who walks in can still
+        consult it. Lending the last free copy of such a title is refused with
+        `LAST_COPY_RETAINED`. A title held in a **single** copy circulates
+        normally — retaining it would mean nobody could ever read it.
+
+        This is library policy, configured in one place, not a rule taken from
+        the LIB 001 course material.
+
         **Concurrency.** Two librarians can issue the last copy at the same
         instant. The copy is claimed with a single atomic statement whose
         condition carries the availability check, so there is no window between
@@ -517,6 +526,7 @@ paths:
           description: |
             `COPY_NOT_AVAILABLE` — already on loan, or another request won the race.
             `COPY_NOT_BORROWABLE` — a reference, display or restricted volume.
+            `LAST_COPY_RETAINED` — the title's last shelf copy is kept in the library.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1070,7 +1080,25 @@ components:
           description: |
             **Derived** from the class mark, never stored. HOL shelves classes
             A-J in the South wing and K-Z in the North.
-        is_available: { type: boolean, description: Derived — true when a circulating copy is on the shelf. }
+        is_available:
+          type: boolean
+          description: |
+            Derived. True when a copy may actually be **taken away** — not
+            merely when one sits on the shelf. A title whose only free copy is
+            being retained reads as `false` here and `true` in `on_shelf`.
+        borrowable:
+          type: integer
+          description: Copies that may leave the building, after last-copy retention.
+          example: 4
+        on_shelf:
+          type: boolean
+          description: A copy can be consulted in the library, even if none may be borrowed.
+        shelf_copy_retained:
+          type: boolean
+          description: |
+            True when this title's one remaining shelf copy is being held back
+            under the retention policy. Use it to explain to a reader why a book
+            that is present cannot be borrowed.
 
     NewBook:
       type: object

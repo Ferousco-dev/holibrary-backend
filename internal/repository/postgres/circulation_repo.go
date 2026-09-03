@@ -44,7 +44,10 @@ type BorrowParams struct {
 //     row is claimed, so a member firing concurrent requests cannot slip past
 //     their category limit.
 //
-//  3. A partial unique index on loans(copy_id) WHERE returned_at IS NULL means
+//  3. The last-copy retention policy is applied in the same transaction, so two
+//     librarians cannot each believe they are taking the second-to-last copy.
+//
+//  4. A partial unique index on loans(copy_id) WHERE returned_at IS NULL means
 //     Postgres physically refuses to store a second open loan for a copy, even
 //     if every line of Go above were wrong.
 //
@@ -75,7 +78,30 @@ func (r *CirculationRepo) Borrow(ctx context.Context, p BorrowParams) (domain.Lo
 		return domain.Loan{}, translate(err)
 	}
 
-	// Step 2: the member's limit, counted inside the transaction.
+	// Step 2: the last-copy retention policy (DEC-018).
+	//
+	// Counted after the claim and inside the same transaction, so two librarians
+	// lending the second-to-last and last copy at the same instant cannot both
+	// pass the check. Rolling back returns the claimed copy to the shelf.
+	var stock, availableAfter int
+	err = tx.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE loan_policy = 'circulating'
+		                          AND status IN ('available','on_loan')),
+		       count(*) FILTER (WHERE loan_policy = 'circulating'
+		                          AND status = 'available')
+		  FROM copies
+		 WHERE book_id = (SELECT book_id FROM copies WHERE id = $1)`, p.CopyID).
+		Scan(&stock, &availableAfter)
+	if err != nil {
+		return domain.Loan{}, translate(err)
+	}
+	// A title held in two or more copies keeps one on the shelf. A single-copy
+	// title circulates: retaining it would mean nobody could ever read it.
+	if stock >= 2 && availableAfter == 0 {
+		return domain.Loan{}, domain.ErrLastCopyRetained
+	}
+
+	// Step 3: the member's limit, counted inside the transaction.
 	active, err := CountActiveLoans(ctx, tx, p.UserID)
 	if err != nil {
 		return domain.Loan{}, err
@@ -85,7 +111,7 @@ func (r *CirculationRepo) Borrow(ctx context.Context, p BorrowParams) (domain.Lo
 		return domain.Loan{}, domain.ErrLoanLimitReached
 	}
 
-	// Step 3: write the loan. The partial unique index is the final guarantee.
+	// Step 4: write the loan. The partial unique index is the final guarantee.
 	var l domain.Loan
 	// borrowed_at is written explicitly rather than defaulted to the database's
 	// now(). The due date was computed against the application's clock, and
