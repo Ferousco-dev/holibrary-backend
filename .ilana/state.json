@@ -3,9 +3,9 @@
   "course": "SEN 106 / SEN 216 - Introduction to Web Technologies",
   "institution": "Obafemi Awolowo University, Ile-Ife",
   "mode": "AUDIT",
-  "phase": null,
+  "phase": "06",
   "gate": "G5",
-  "agent": "quality-auditor",
+  "agent": "configuration-engineer",
   "process_style": "hybrid",
   "rigour": 4,
   "stack": {
@@ -26,13 +26,10 @@
     "RSK-003",
     "RSK-004",
     "RSK-005",
-    "DEF-020",
-    "DEF-021",
-    "DEF-022",
-    "DEF-023",
-    "DEF-024",
-    "DEF-025",
-    "DEF-026"
+    "RSK-006",
+    "RSK-007",
+    "RSK-008",
+    "RSK-009"
   ],
   "overrides": [],
   "counters": {
@@ -41,10 +38,10 @@
     "DOM": 9,
     "DES": 11,
     "TC": 105,
-    "DEF": 26,
+    "DEF": 27,
     "CR": 0,
-    "DEC": 13,
-    "RSK": 5
+    "DEC": 30,
+    "RSK": 9
   },
   "attempts": {
     "G0": 1,
@@ -52,5 +49,15 @@
     "G2": 1,
     "G4": 1,
     "G5": 1
+  },
+  "deployment": {
+    "api": "https://api.library.appmd.dev",
+    "origin": "https://holibrary-api.onrender.com",
+    "render_service": "srv-dacuhqad0e5s73fhol80",
+    "database": "Neon, project neon-cinnabar-notebook, database holibrary",
+    "redis": "Upstash, shared, keys namespaced holibrary:",
+    "edge": "Cloudflare, appmd.dev, proxied, Full (strict)",
+    "mail": "Resend, holibrary@appmd.dev, verified working",
+    "pipeline": "GitHub Actions: test, security, migrations, docker -> deploy -> smoke"
   }
 }

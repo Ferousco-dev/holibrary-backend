@@ -434,3 +434,73 @@ under test asserts that the wrong behaviour is correct. It failed for the first
 time when the real rule moved into SQL.
 
 Defects to date: 25 found, 25 closed.
+
+## 2026-09-03 | CORRECTION | conductor
+This entry supersedes nothing; it admits a gap. Ten commits were made between
+the em-dash pass and this entry with no ledger record: the whole of phase 06,
+the CI/CD pipeline, and the email work. The registers were stale with it -
+phase read null and the DEC counter read 13 while decisions.md held 21.
+
+Article 12 says write it down or it did not happen. The work happened; the
+record did not, and it was the stakeholder who noticed rather than the process.
+Recorded here rather than backdated, because a ledger that quietly fills its own
+gaps is worth less than one that shows them.
+
+## 2026-09-03 | 06 | configuration-engineer | DEPLOYMENT
+The system is deployed and reachable at https://api.library.appmd.dev.
+
+  Render      holibrary-api, Ohio, free plan, health check /healthz
+  Neon        project neon-cinnabar-notebook, database holibrary, pooled
+  Upstash     shared with another application, keys namespaced holibrary:
+  Cloudflare  appmd.dev, proxied, Full (strict), certificate to 2 Dec
+  Resend      holibrary@appmd.dev, verified end to end: queued 22:41:05,
+              sent 22:41:08, delivered to the inbox rather than to spam
+
+Blocking problem found and fixed before deployment: migrations only ran through
+the Postgres image's initdb directory, which exists locally and nowhere else.
+A hosted database would have received no schema. They now apply at startup from
+an embedded copy under an advisory lock, each in its own transaction, recorded
+with a checksum (DEC-025).
+
+Security problem found and fixed: the repository is public and the seed
+migration contains an administrator password. Production now refuses to start
+with the seed enabled or with the published development JWT secret, and a
+production database starts with no accounts at all (DEC-026, DEC-027).
+
+Decisions recorded: DEC-022..DEC-030. Risks added: RSK-006..RSK-009.
+
+## 2026-09-03 | 06 | configuration-engineer | CI/CD
+GitHub Actions, shaped test -> deploy -> smoke. Nothing deploys that has not
+passed its tests, and nothing counts as deployed until the running service has
+been checked from outside.
+
+  test         build, vet, gofmt, race detector, 70% coverage gate
+  security     govulncheck, reachable vulnerabilities only
+  migrations   an applied migration must not be edited
+  docker       the image builds
+  deploy       Render API, polls for the outcome rather than firing and hoping
+  smoke        database reachable, docs render, spec parses, catalogue public,
+               member roll 401, CORS admits the frontend and refuses others,
+               security headers present
+
+Render's own auto-deploy is off. It builds before tests run, and it had been
+silently not working: a service created through the API has no GitHub webhook,
+so four commits sat undeployed while the dashboard reported it enabled. That is
+the failure mode worth remembering - a deployment serving old code looks
+healthy in every way except being current (DEC-028).
+
+Full pipeline verified green through to smoke tests.
+
+## 2026-09-03 | 04 | constructor | EMAIL PRESENTATION
+Reset emails carried a 43-character code for the reader to retype. They now
+carry a button to the frontend reset page, with the code kept beneath it
+because mail clients mangle links and corporate filters rewrite them.
+
+All five member-facing templates send HTML and plain text. The text part is not
+a fallback: it is what a screen reader and a spam filter read.
+
+DEF-027 found by the tests written alongside: emailHTML escapes plain-text
+parts and the templates were escaping them first, so a member whose name
+contained a bracket would have read "&lt;" in their inbox. Names come from a
+librarian's CSV upload and are not trustworthy input. Escaped exactly once now,
+with the contract written where the function is defined.
