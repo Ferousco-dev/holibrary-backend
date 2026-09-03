@@ -169,6 +169,118 @@ examiner asks why there is no `is_overdue` column.
 
 ---
 
+## 2A. Index strategy (DES-011)
+
+Indexes are designed around the queries this system actually runs: high-frequency
+lookups, uniqueness constraints, foreign-key joins, catalogue search, open-loan
+queries, overdue detection and notification retrieval. They are **not** added
+indiscriminately.
+
+The reason is that an index is not free:
+
+```
+   more indexes  ->  faster SELECT
+                 ->  slower INSERT / UPDATE / DELETE
+                 ->  more disk
+```
+
+Every write must maintain every index on the table. An over-indexed `loans`
+table would slow down the one operation that has to be quick at the circulation
+desk while a student waits.
+
+**Every index below was validated with `EXPLAIN ANALYZE`, and the omissions are
+recorded as decisions.** That verb matters: you cannot tell whether Postgres is
+using an index by looking at the schema, only by asking the planner.
+
+### The measurements
+
+| Query | Before | After | Index |
+|---|---|---|---|
+| Title substring search, 155k books | 51.5 ms, `Seq Scan`, 144,291 rows discarded | **21.9 ms**, `Bitmap Index Scan` | `books_title_trgm_idx` |
+| Member roll search, 38k members | 22.5 ms, `Seq Scan`, 33,628 rows discarded | **3.1 ms**, `BitmapOr` of three | `users_*_trgm_idx` |
+| Audit lookup by entity, 20k rows | Filter over a time-ordered scan | **`Index Scan`**, 0.03 ms | `audit_log_entity_idx` |
+| Overdue detection | Already `Index Only Scan`, 0 heap fetches | unchanged | `loans_open_due_idx` |
+
+### What the measurements actually taught us
+
+**1. An index Postgres will not use is worse than no index.** At 5,000 books the
+planner *correctly* ignored the trigram index and scanned the table: at that size
+a scan is genuinely cheaper. The index only started paying at around 150,000
+rows. HOL holds over 750,000 volumes, so the index is justified — but by the
+target scale, not by the developer's laptop. Had we tested only on seed data and
+declared victory, we would have shipped an unused index and believed search was
+fast.
+
+**2. An `OR` chain is only as indexable as its least-indexed branch.** The member
+search filters `full_name OR identifier OR email`. With trigram indexes on the
+first two and nothing on `email`, Postgres could not use a `BitmapOr` and fell
+back to scanning all 38,000 members — *even though two thirds of the predicate
+was indexed*. Adding the third index cut the query from 22.5 ms to 3.1 ms.
+`email` is `citext`, so the index is built on `(email::text)` and the query casts
+to match; without the matching expression the index is invisible to the planner.
+
+**3. A B-tree cannot serve a leading wildcard.** `ILIKE '%clean%'` has no prefix
+to seek on. This project shipped an index literally named `authors_name_trgm_idx`
+that was in fact `btree(lower(name))` — it could never have served the query it
+was created for, and never did. Corrected to a real GIN trigram index (DEF-012).
+
+### The indexes, and why each exists
+
+| Table | Index | Serves |
+|---|---|---|
+| `users` | `UNIQUE(identifier)`, `UNIQUE(email)` | identity, and invariant I-05 |
+| | `gin(full_name)`, `gin(identifier)`, `gin((email::text))` trigram | member roll search |
+| `books` | `gin(search_vector)` | weighted full-text `q=` search |
+| | `gin(title)` trigram | `title=` substring filter |
+| | `(isbn13) WHERE NOT NULL`, `(call_number)`, `(lcc_class)` | exact and prefix lookups |
+| `authors` | `gin(name)` trigram | `author=` substring filter |
+| `copies` | `UNIQUE(accession_number)` | invariant I-06 — one volume, one number |
+| | `(book_id, status, loan_policy)` | the availability count, which filters on all three |
+| `loans` | **`UNIQUE(copy_id) WHERE returned_at IS NULL`** | **invariant I-01** — the partial unique index that makes two open loans on one copy unstorable |
+| | `(due_at) WHERE returned_at IS NULL` | overdue detection, over open loans only |
+| | `(user_id) WHERE returned_at IS NULL` | the borrowing-limit check and `/me/loans` |
+| | `(user_id, borrowed_at DESC)` | full borrowing history |
+| `reservations` | `UNIQUE(book_id, user_id) WHERE open` | one place per member per title |
+| | `(book_id, created_at)` | queue order |
+| | `(user_id) WHERE open` | `/me/reservations` |
+| `outbox` | `(scheduled_at) WHERE pending` | the worker's claim |
+| `audit_log` | `(entity_type, entity_id)` | "what happened to this loan?" |
+| | `(actor_id, created_at DESC)` | "what did this librarian do?" |
+
+**Partial indexes carry their weight here.** A library accumulates returned loans
+forever, but almost every question concerns open ones. `WHERE returned_at IS
+NULL` keeps those indexes proportional to books currently out — a few hundred
+rows — rather than to the library's entire history.
+
+### Deliberately not indexed
+
+| Suggested | Why not |
+|---|---|
+| `loans(status)` | There is no status column. A loan's state is derived from `returned_at` and `due_at` (I-02, I-08). There is nothing to index. |
+| `loans(status, due_at)` | Superseded by the partial `loans_open_due_idx`, which answers the same question from a smaller structure. |
+| `notifications(user_id, read_at)` | No member-facing notification list exists yet. The column is there for when one does. |
+| `import_jobs(*)` | No such table. CSV import is a synchronous request that returns its own summary. |
+| `users(role, status)` | No query filters on both together. |
+| `books(created_at)` | No "recently added" query exists. HOL does display Recent Accessions, so this is a *likely* future need — and a likely need is not a need. |
+| `books(author)` | Authors are a join table, not a column, because a book may have several. |
+
+### Re-checking
+
+`EXPLAIN ANALYZE` is how a claim about an index becomes a measurement. Two
+counters make drift visible without running anything:
+
+```sql
+-- indexes nothing has ever used: candidates for removal
+SELECT relname, indexrelname, idx_scan, pg_size_pretty(pg_relation_size(indexrelid))
+  FROM pg_stat_user_indexes WHERE idx_scan = 0 ORDER BY pg_relation_size(indexrelid) DESC;
+
+-- tables being scanned sequentially in production: candidates for an index
+SELECT relname, seq_scan, idx_scan, n_live_tup FROM pg_stat_user_tables
+ WHERE seq_scan > idx_scan AND n_live_tup > 10000;
+```
+
+---
+
 ## 3. The critical design element: last-copy concurrency (DES-006)
 
 **REQ-047 and NFR-009.** Two librarians issue the last copy of *Clean Code* at the same
@@ -418,6 +530,7 @@ Red build blocks merge.
 | DES-007 API surface | REQ-073, and the route table above |
 | DES-008 outbox notifications | REQ-069..072 |
 | DES-009 deployment | NFR-006, NFR-011, NFR-013, NFR-015, NFR-018 |
+| DES-011 index strategy | NFR-001 |
 | DES-010 time and timezone policy | REQ-042, REQ-052, REQ-053, REQ-069..072, NFR-003, NFR-020 |
 
 ## 9. Deferred

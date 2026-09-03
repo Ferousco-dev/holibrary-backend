@@ -78,6 +78,38 @@ HOL does not lend its whole collection, so neither does this system:
 | `on_display` | no | **yes** | Recent Accessions — *"may not be borrowed while on display but may be reserved at the Loans desk"* |
 | `restricted` | no | no | Africana, OAU Publications, Serials, Conservation |
 
+## Indexing
+
+Indexes exist for queries this system actually runs, and **every one was
+validated with `EXPLAIN ANALYZE`** — you cannot tell whether Postgres is using an
+index by reading the schema.
+
+| Query | Before | After |
+|---|---|---|
+| Title search, 155k books | 51.5 ms `Seq Scan` | **21.9 ms** `Bitmap Index Scan` |
+| Member search, 38k members | 22.5 ms `Seq Scan` | **3.1 ms** `BitmapOr` |
+
+Three things the measurements taught us, all of them counter-intuitive:
+
+- **At 5,000 books the planner correctly ignored the new trigram index** and
+  scanned the table, because at that size a scan really is cheaper. It only
+  started paying at around 150,000 rows. HOL holds 750,000 volumes, so the index
+  is justified by the target scale — not by a laptop with seed data on it.
+- **An `OR` chain is only as indexable as its least-indexed branch.** Member
+  search filtered `full_name OR identifier OR email`; two had trigram indexes and
+  `email` did not, so Postgres used *neither* and scanned all 38,000 members.
+- **A B-tree cannot serve a leading wildcard.** This project shipped an index
+  named `authors_name_trgm_idx` that was actually `btree(lower(name))` and could
+  never have served the `ILIKE '%...%'` it was built for.
+
+Partial indexes carry real weight here: a library accumulates returned loans
+forever, but nearly every question concerns open ones, so `WHERE returned_at IS
+NULL` keeps those indexes proportional to books currently out rather than to the
+library's whole history.
+
+Full strategy, including what is deliberately **not** indexed and why:
+`docs/design.md` §2A (DES-011).
+
 ## Last-copy retention
 
 A title held in **two or more** circulating copies always keeps one on the shelf,

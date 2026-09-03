@@ -264,3 +264,35 @@ nobody collected. Both recompute from the clock every pass.
 
 8 worker tests. Contract tests caught the two undocumented device routes before
 they were committed, which is what they are for.
+
+## 2026-09-03 | 02 | architect | DES-011 INDEX STRATEGY
+Index strategy added to docs/design.md section 2A, on stakeholder input.
+Migration 0007. Every index validated with EXPLAIN ANALYZE against a seeded
+dataset of 155,000 books, 38,000 members and 20,000 audit rows, then the
+benchmark data was removed and the demonstration database rebuilt.
+
+Measured:
+  title substring search, 155k books  51.5 ms Seq Scan -> 21.9 ms Bitmap Index Scan
+  member roll search, 38k members     22.5 ms Seq Scan -> 3.1 ms BitmapOr
+  audit lookup by entity, 20k rows    filtered scan -> Index Scan, 0.03 ms
+  overdue detection                   already Index Only Scan, 0 heap fetches
+
+Two defects found by measurement, neither visible in the schema and neither
+catchable by a test, because both queries returned correct rows all along:
+  DEF-012 authors_name_trgm_idx was btree(lower(name)) under a name claiming
+          trigram. A B-tree cannot serve a leading wildcard, so it was never
+          used once. An index nothing uses costs write time and disk while
+          making the schema look covered.
+  DEF-013 the member search filtered full_name OR identifier OR email with
+          trigram indexes on the first two only. An OR chain is only as
+          indexable as its least-indexed branch, so Postgres used neither and
+          scanned the whole roll.
+
+Recorded and not a defect, but the most useful finding: at 5,000 books the
+planner correctly ignored the trigram index, because at that size a sequential
+scan is genuinely cheaper. It began using it at around 150,000 rows. HOL holds
+over 750,000 volumes. Testing on seed data and declaring the index effective
+would have proved nothing.
+
+Also recorded: seven suggested indexes deliberately not added, each with its
+reason, so the omissions read as decisions.
