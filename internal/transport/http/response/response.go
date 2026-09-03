@@ -89,6 +89,8 @@ var errorMap = []struct {
 		"Too many attempts. Please wait a minute and try again."},
 	{domain.ErrNotFound, http.StatusNotFound, "NOT_FOUND",
 		"We could not find that."},
+	{domain.ErrDuplicateISBN, http.StatusConflict, "DUPLICATE_ISBN",
+		"The library already holds this title. Add a copy to it rather than cataloguing it again."},
 	{domain.ErrDuplicateAccession, http.StatusConflict, "DUPLICATE_ACCESSION",
 		"That accession number already belongs to another copy."},
 	{domain.ErrConflict, http.StatusConflict, "CONFLICT",

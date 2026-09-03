@@ -237,6 +237,7 @@ func printReport(model *simulator.Model, r *simulator.Report) {
 
 	fmt.Println("  what it did")
 	fmt.Printf("    titles imported   %d\n", r.BooksImported)
+	fmt.Printf("    already held      %d  (copies added to the existing title)\n", r.CopiesToExisting)
 	fmt.Printf("    copies shelved    %d\n", r.CopiesAdded)
 	fmt.Printf("    members added     %d\n", r.MembersCreated)
 	fmt.Printf("    books lent        %d\n", r.LoansCreated)

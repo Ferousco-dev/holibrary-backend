@@ -175,6 +175,19 @@ type CreateBookParams struct {
 	Subjects           []string
 }
 
+// FindBookByISBN resolves a title already in the catalogue.
+//
+// Used when an import meets a work the library already holds, so the copies go
+// to the existing title instead of creating a second one.
+func (r *CatalogueRepo) FindBookByISBN(ctx context.Context, isbn string) (domain.Book, error) {
+	isbn = strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(isbn))
+	if isbn == "" {
+		return domain.Book{}, domain.ErrNotFound
+	}
+	b, err := scanBook(r.db.QueryRow(ctx, bookSelect+` WHERE b.isbn13 = $1`, isbn))
+	return b, translate(err)
+}
+
 // CreateBook inserts a book with its authors and subjects in one transaction,
 // so a title can never end up in the catalogue without its access points.
 func (r *CatalogueRepo) CreateBook(ctx context.Context, p CreateBookParams) (domain.Book, error) {
@@ -204,6 +217,13 @@ func (r *CatalogueRepo) CreateBook(ctx context.Context, p CreateBookParams) (dom
 		p.PlaceOfPublication, p.PublishedYear, strings.TrimSpace(p.CallNumber),
 		lccClass, p.Description).Scan(&id)
 	if err != nil {
+		// One ISBN is one title. A second attempt to catalogue the same work is
+		// not an error to swallow: the caller should add a copy to the title
+		// that already exists, which is what a librarian receiving a second
+		// physical volume actually does (DOM-002, DEF-028).
+		if isUniqueViolation(err, "books_isbn13_unique") {
+			return domain.Book{}, domain.ErrDuplicateISBN
+		}
 		return domain.Book{}, translate(err)
 	}
 

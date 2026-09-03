@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
@@ -95,6 +96,10 @@ func (h *CatalogueHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A second attempt to catalogue the same work is answered with the title
+	// that already exists, so the librarian can add a copy to it rather than
+	// creating a duplicate. This is the API telling the caller what to do next
+	// instead of only telling it no.
 	book, err := h.catalogue.CreateBook(r.Context(), postgres.CreateBookParams{
 		Title:              req.Title,
 		Subtitle:           req.Subtitle,
@@ -108,6 +113,20 @@ func (h *CatalogueHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Authors:            req.Authors,
 		Subjects:           req.Subjects,
 	})
+	if errors.Is(err, domain.ErrDuplicateISBN) {
+		existing, findErr := h.catalogue.FindByISBN(r.Context(), req.ISBN13)
+		if findErr == nil {
+			response.JSON(w, http.StatusConflict, map[string]any{
+				"error": map[string]string{
+					"code": "DUPLICATE_ISBN",
+					"message": "The library already holds this title. " +
+						"Add a copy to it rather than cataloguing it again.",
+				},
+				"existing": service.NewBookView(existing),
+			}, nil)
+			return
+		}
+	}
 	if err != nil {
 		response.FromError(w, err)
 		return

@@ -15,6 +15,7 @@ import (
 type CatalogueStore interface {
 	Search(ctx context.Context, p postgres.SearchParams) ([]domain.Book, int, error)
 	FindBook(ctx context.Context, id uuid.UUID) (domain.Book, error)
+	FindBookByISBN(ctx context.Context, isbn string) (domain.Book, error)
 	CreateBook(ctx context.Context, p postgres.CreateBookParams) (domain.Book, error)
 	ArchiveBook(ctx context.Context, id uuid.UUID) error
 	AddCopy(ctx context.Context, bookID uuid.UUID, accession string, policy domain.LoanPolicy) (domain.Copy, error)
@@ -103,6 +104,11 @@ func (s *CatalogueService) CreateBook(ctx context.Context, p postgres.CreateBook
 	p.ISBN13 = normaliseISBN(p.ISBN13)
 	p.ISBN10 = normaliseISBN(p.ISBN10)
 	return s.books.CreateBook(ctx, p)
+}
+
+// FindByISBN returns a title the library already holds, if it does.
+func (s *CatalogueService) FindByISBN(ctx context.Context, isbn string) (domain.Book, error) {
+	return s.books.FindBookByISBN(ctx, normaliseISBN(isbn))
 }
 
 // normaliseISBN strips the punctuation people type so that "978-0-13-235088-4"

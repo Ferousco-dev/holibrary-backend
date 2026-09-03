@@ -18,6 +18,8 @@ type fakeCatalogue struct {
 	book           domain.Book
 	copy           domain.Copy
 	closedLoanWith domain.CopyStatus
+	findByISBNErr  error
+	createErr      error
 }
 
 func (f *fakeCatalogue) Search(_ context.Context, p postgres.SearchParams) ([]domain.Book, int, error) {
@@ -27,8 +29,14 @@ func (f *fakeCatalogue) Search(_ context.Context, p postgres.SearchParams) ([]do
 func (f *fakeCatalogue) FindBook(context.Context, uuid.UUID) (domain.Book, error) {
 	return f.book, nil
 }
+func (f *fakeCatalogue) FindBookByISBN(context.Context, string) (domain.Book, error) {
+	return f.book, f.findByISBNErr
+}
 func (f *fakeCatalogue) CreateBook(_ context.Context, p postgres.CreateBookParams) (domain.Book, error) {
 	f.created = p
+	if f.createErr != nil {
+		return domain.Book{}, f.createErr
+	}
 	return domain.Book{Title: p.Title, CallNumber: p.CallNumber}, nil
 }
 func (f *fakeCatalogue) ArchiveBook(context.Context, uuid.UUID) error { return nil }
@@ -197,5 +205,35 @@ func TestPolicyCannotChangeWhileOnLoan(t *testing.T) {
 	reference := domain.PolicyReferenceOnly
 	if err := svc.UpdateCopy(context.Background(), uuid.New(), &reference, nil, uuid.New()); !errors.Is(err, domain.ErrCopyOnLoan) {
 		t.Errorf("error = %v, want ErrCopyOnLoan", err)
+	}
+}
+
+// One ISBN is one title. The second attempt to catalogue a work the library
+// already holds must be refused, so the caller adds a copy to the existing
+// record rather than creating a second title with its own call number and its
+// own availability (DOM-002, DEF-028).
+func TestDuplicateISBNIsRefused(t *testing.T) {
+	store := &fakeCatalogue{createErr: domain.ErrDuplicateISBN}
+	svc := service.NewCatalogueService(store)
+
+	_, err := svc.CreateBook(context.Background(), postgres.CreateBookParams{
+		Title: "Clean Code", CallNumber: "QA76.76", ISBN13: "9780132350884",
+	})
+	if !errors.Is(err, domain.ErrDuplicateISBN) {
+		t.Errorf("error = %v, want ErrDuplicateISBN", err)
+	}
+}
+
+// A title with no ISBN is normal rather than exceptional. Africana material,
+// OAU Publications and older Nigerian imprints frequently predate the scheme,
+// and refusing them would exclude the collections this library is known for.
+func TestATitleWithoutAnISBNIsAccepted(t *testing.T) {
+	store := &fakeCatalogue{}
+	svc := service.NewCatalogueService(store)
+
+	if _, err := svc.CreateBook(context.Background(), postgres.CreateBookParams{
+		Title: "The Benin-Ife Controversy", CallNumber: "DT 515.15 .Ob21",
+	}); err != nil {
+		t.Errorf("a title with no ISBN must be accepted: %v", err)
 	}
 }

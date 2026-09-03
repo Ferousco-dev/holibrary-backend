@@ -32,7 +32,10 @@ func (a *Agent) StockCatalogue(ctx context.Context, maxTitles int) {
 		callNumber := a.callNumberFor(lcc, meta)
 
 		var created struct {
-			ID string `json:"ID"`
+			ID       string `json:"ID"`
+			Existing struct {
+				ID string `json:"ID"`
+			} `json:"existing"`
 		}
 		status, _, err := a.call(ctx, http.MethodPost, "/api/v1/books", map[string]any{
 			"title":          truncate(meta.Title, 200),
@@ -50,18 +53,32 @@ func (a *Agent) StockCatalogue(ctx context.Context, maxTitles int) {
 			a.report.Failures = append(a.report.Failures, "creating a book: "+err.Error())
 			continue
 		}
-		if status != http.StatusCreated {
-			// CONFLICT is expected and healthy: the title is already stocked.
+
+		bookID := created.ID
+		switch status {
+		case http.StatusCreated:
+			a.report.BooksImported++
+		case http.StatusConflict:
+			// The library already holds this work. A librarian handed a second
+			// physical volume does not catalogue the title again; they add a
+			// copy to the record that exists. Doing otherwise produced 277
+			// redundant titles, one book appearing six times, each with its own
+			// call number and availability (DEF-028).
+			if created.Existing.ID == "" {
+				continue
+			}
+			bookID = created.Existing.ID
+			a.report.CopiesToExisting++
+		default:
 			continue
 		}
-		a.report.BooksImported++
 
 		// The library decides its own holdings. Most titles are held in one or
 		// two copies, a few core texts in many.
 		for i := 0; i < a.model.PickCopyCount(a.rng); i++ {
 			policy := a.model.PickLoanPolicy(a.rng)
 			status, _, err := a.call(ctx, http.MethodPost,
-				"/api/v1/books/"+created.ID+"/copies", map[string]any{
+				"/api/v1/books/"+bookID+"/copies", map[string]any{
 					"accession_number": a.accessionNumber(),
 					"loan_policy":      policy,
 				}, nil, a.staffToken)

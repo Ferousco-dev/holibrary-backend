@@ -21,18 +21,21 @@ import (
 // refusals as well as successes. A simulator that counted only what succeeded
 // would report a healthy system while the library had quietly stopped lending.
 type Report struct {
-	StartedAt      time.Time      `json:"started_at"`
-	FinishedAt     time.Time      `json:"finished_at"`
-	Outcome        string         `json:"outcome"` // ok | degraded | failed
-	BooksImported  int            `json:"books_imported"`
-	CopiesAdded    int            `json:"copies_added"`
-	MembersCreated int            `json:"members_created"`
-	LoansCreated   int            `json:"loans_created"`
-	ReturnsMade    int            `json:"returns_made"`
-	Reservations   int            `json:"reservations"`
-	Refusals       map[string]int `json:"refusals"`
-	Failures       []string       `json:"failures"`
-	Checks         []Check        `json:"checks"`
+	StartedAt     time.Time `json:"started_at"`
+	FinishedAt    time.Time `json:"finished_at"`
+	Outcome       string    `json:"outcome"` // ok | degraded | failed
+	BooksImported int       `json:"books_imported"`
+	// CopiesToExisting counts works the library already held, where the copies
+	// joined the existing title instead of creating another one.
+	CopiesToExisting int            `json:"copies_to_existing_titles"`
+	CopiesAdded      int            `json:"copies_added"`
+	MembersCreated   int            `json:"members_created"`
+	LoansCreated     int            `json:"loans_created"`
+	ReturnsMade      int            `json:"returns_made"`
+	Reservations     int            `json:"reservations"`
+	Refusals         map[string]int `json:"refusals"`
+	Failures         []string       `json:"failures"`
+	Checks           []Check        `json:"checks"`
 }
 
 // Check is one assertion about the state of the library after the pass.
