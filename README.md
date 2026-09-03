@@ -188,6 +188,31 @@ migrations/              numbered, forward-only SQL
 No component is here without a problem it solves. That is deliberate: every
 choice has to be defensible out loud.
 
+## Observability
+
+One structured JSON line per request:
+
+```json
+{"level":"INFO","msg":"request","method":"POST","path":"/api/v1/loans",
+ "status":201,"duration_ms":8,"request_id":"47e6d440-...",
+ "actor_id":"3f0a...","actor_role":"librarian"}
+```
+
+`request_id` is returned to the caller in `X-Request-ID`, so a member reporting
+"it failed at about 6:30" can be traced to an exact line, and that line
+correlates with the audit trail.
+
+**Not logged:** request bodies and query strings. They carry passwords, reset
+tokens, search terms and member names. A borrowing history is a record of what a
+named student reads and does not belong in a log aggregator.
+
+A note on **Firebase**: it is in this stack for **FCM push notifications only**.
+Crashlytics and Performance Monitoring are client-side products for mobile and
+web apps — they have no Go server SDK and cannot observe this API. Backend
+observability here is structured logs plus the health endpoint; a log drain or
+an error tracker with a real Go SDK can be added later if the need is measured
+rather than assumed.
+
 ## Time and timezone
 
 Borrowing, due dates, overdue detection, reminders, audit entries and token

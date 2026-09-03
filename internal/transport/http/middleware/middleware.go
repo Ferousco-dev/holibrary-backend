@@ -26,7 +26,26 @@ const (
 	ctxKeyUserID    ctxKey = "user_id"
 	ctxKeyRole      ctxKey = "role"
 	ctxKeyRequestID ctxKey = "request_id"
+	ctxKeyLogFields ctxKey = "log_fields"
 )
+
+// logFields carries what the access log learns about a request *after* the
+// logger has already been entered.
+//
+// Middleware nests, so Logger wraps Authenticate and runs first. Authenticate
+// puts the caller into a derived context, and a derived context is invisible to
+// the outer frame. A pointer placed in the context before the chain descends is
+// how the identity gets back out, so one log line can carry both the timing and
+// who made the request.
+type logFields struct {
+	userID string
+	role   string
+}
+
+func fieldsFrom(ctx context.Context) *logFields {
+	f, _ := ctx.Value(ctxKeyLogFields).(*logFields)
+	return f
+}
 
 // UserID returns the authenticated caller, if there is one.
 func UserID(ctx context.Context) (uuid.UUID, bool) {
@@ -74,6 +93,12 @@ func Authenticate(issuer *auth.TokenIssuer) func(http.Handler) http.Handler {
 			if claims.Pending && !isPasswordChangeRoute(r) {
 				response.FromError(w, domain.ErrMustChangePassword)
 				return
+			}
+
+			// Tell the access log who this is (see logFields).
+			if f := fieldsFrom(r.Context()); f != nil {
+				f.userID = claims.UserID.String()
+				f.role = claims.Role
 			}
 
 			ctx := context.WithValue(r.Context(), ctxKeyUserID, claims.UserID)
@@ -205,7 +230,10 @@ func WithRequestID(next http.Handler) http.Handler {
 			id = uuid.NewString()
 		}
 		w.Header().Set("X-Request-ID", id)
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKeyRequestID, id)))
+
+		ctx := context.WithValue(r.Context(), ctxKeyRequestID, id)
+		ctx = context.WithValue(ctx, ctxKeyLogFields, &logFields{})
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -222,10 +250,16 @@ func (s *statusRecorder) WriteHeader(code int) {
 
 // Logger writes one structured line per request.
 //
-// It records the method, path, status and duration. It deliberately does not
-// record request bodies or query strings, because those carry passwords, reset
-// tokens and member names, and logs are the easiest place for personal data to
-// leak (NFR-010, DOM-009).
+// Recorded: method, route, status, duration, request id, and — once the request
+// has been authenticated — the caller's id and role. That is enough to answer
+// "what happened to this member's request at 18:31" from the logs alone, and
+// enough to correlate a log line with an audit entry.
+//
+// Deliberately NOT recorded: request bodies and query strings. Those carry
+// passwords, reset tokens, search terms and member names, and logs are the
+// easiest place in a system for personal data to escape (NFR-010, DOM-009).
+// A borrowing history is a record of what a named student reads; it does not
+// belong in a log aggregator.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -233,13 +267,25 @@ func Logger(next http.Handler) http.Handler {
 
 		next.ServeHTTP(rec, r)
 
-		slog.Info("request",
+		attrs := []any{
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rec.status,
 			"duration_ms", time.Since(start).Milliseconds(),
 			"request_id", RequestID(r.Context()),
-		)
+		}
+		// Anonymous requests simply have no actor, rather than an empty one.
+		if f := fieldsFrom(r.Context()); f != nil && f.userID != "" {
+			attrs = append(attrs, "actor_id", f.userID, "actor_role", f.role)
+		}
+
+		// A failed request is not routine and should not need a log level
+		// filter to find.
+		if rec.status >= 500 {
+			slog.Error("request", attrs...)
+			return
+		}
+		slog.Info("request", attrs...)
 	})
 }
 

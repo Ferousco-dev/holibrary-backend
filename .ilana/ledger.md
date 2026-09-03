@@ -173,3 +173,16 @@ frontend team cannot build against a stale document.
 
 Traceability updated: 46 requirements now marked implemented with the file
 that satisfies them.
+
+## 2026-09-03 | 10 | constructor | OBSERVABILITY
+Access log enriched with actor_id and actor_role. Middleware nests, so the
+logger wraps the authenticator and runs first; the identity is carried back out
+through a pointer placed in the context before the chain descends. Requests
+returning 5xx now log at ERROR rather than INFO.
+
+Bodies and query strings remain deliberately unlogged: they carry passwords,
+reset tokens, search terms and member names (NFR-010, DOM-009).
+
+DEC-017 recorded: Firebase serves FCM push only. Crashlytics and Performance
+Monitoring are client-side products with no Go server SDK and cannot observe
+this API. Stated so the defence answer is accurate rather than aspirational.
