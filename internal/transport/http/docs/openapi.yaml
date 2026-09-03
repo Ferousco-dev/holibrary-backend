@@ -51,10 +51,14 @@ info:
     name: MIT
 
 servers:
+  # Production first, so "Try it out" reaches the running service rather than a
+  # machine the reader does not have.
+  - url: https://api.library.appmd.dev/api/v1
+    description: Production
+  - url: https://holibrary-api.onrender.com/api/v1
+    description: Production, direct to the origin (bypasses Cloudflare)
   - url: http://localhost:8080/api/v1
     description: Local development
-  - url: https://holibrary-backend.onrender.com/api/v1
-    description: Deployment
 
 tags:
   - name: Authentication
