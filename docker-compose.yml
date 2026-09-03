@@ -1,0 +1,46 @@
+# Local development stack.
+#
+# Production uses Neon for Postgres and Upstash for Redis (DEC-010); this file
+# exists so the project can be run and marked without any external account.
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: holibrary
+      POSTGRES_PASSWORD: holibrary
+      POSTGRES_DB: holibrary
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Migrations run in filename order on first start of an empty volume.
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U holibrary"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 8080
+      ENV: development
+      DATABASE_URL: postgres://holibrary:holibrary@db:5432/holibrary?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: development-secret-not-for-production-use-32
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

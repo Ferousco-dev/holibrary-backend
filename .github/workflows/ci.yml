@@ -1,0 +1,57 @@
+# Continuous integration (NFR-013).
+#
+# Every push and every pull request runs the same checks. A red build blocks the
+# merge, so main is always a branch that compiles and passes its tests.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Build, vet and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+
+      - name: Verify dependencies are tidy
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # -race catches data races that only appear under concurrency, which is
+      # exactly the class of bug the borrowing path is designed to avoid.
+      - name: Test with race detector and coverage
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Report coverage
+        run: go tool cover -func=coverage.out | tail -1
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t holibrary-backend:ci .

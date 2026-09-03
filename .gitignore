@@ -1,0 +1,16 @@
+# binaries
+/bin/
+holibrary-api
+
+# environment - never commit secrets (NFR-015)
+.env
+.env.local
+
+# test and coverage output
+*.out
+coverage.html
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
