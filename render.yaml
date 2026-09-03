@@ -53,6 +53,10 @@ services:
       - key: MAIL_FROM
         value: holibrary@appmd.dev
 
+      # Password reset links are built from this.
+      - key: FRONTEND_URL
+        value: https://library.appmd.dev
+
       # The Vercel frontend. A wildcard would let any site on the internet read
       # a member's borrowing history.
       - key: CORS_ORIGINS

@@ -41,12 +41,20 @@ func (r *Resend) Configured() bool { return r.apiKey != "" }
 func (r *Resend) Send(ctx context.Context, m Message) error {
 	rendered := Render(m)
 
-	body, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"from":    r.from,
 		"to":      []string{m.To},
 		"subject": rendered.Subject,
-		"text":    rendered.Body,
-	})
+		// Both parts are sent where both exist. The text part is what a screen
+		// reader and a spam filter read, and a message with no text alternative
+		// scores worse with the latter.
+		"text": rendered.Body,
+	}
+	if rendered.HTML != "" {
+		payload["html"] = rendered.HTML
+	}
+
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("%w: encoding message: %v", ErrPermanent, err)
 	}

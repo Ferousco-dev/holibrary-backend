@@ -45,6 +45,12 @@ type Config struct {
 	MailFrom     string
 
 	OpenLibraryBaseURL string
+
+	// FrontendURL is where a member lands when they follow a link from an
+	// email. It is configuration rather than a constant because the address
+	// differs between a laptop, a preview deployment and production, and an
+	// email with the wrong link in it is worse than one with none.
+	FrontendURL string
 }
 
 // IsProduction reports whether stricter defaults should apply.
@@ -70,6 +76,7 @@ func Load() (Config, error) {
 		ResendAPIKey:       os.Getenv("RESEND_API_KEY"),
 		MailFrom:           fallback("MAIL_FROM", "library@example.edu.ng"),
 		OpenLibraryBaseURL: fallback("OPENLIBRARY_BASE_URL", "https://openlibrary.org"),
+		FrontendURL:        strings.TrimRight(fallback("FRONTEND_URL", "https://library.appmd.dev"), "/"),
 	}
 
 	var err error

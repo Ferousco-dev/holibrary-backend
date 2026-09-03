@@ -252,6 +252,10 @@ func run() error {
 	// Notification delivery runs beside the server, never on a request. A
 	// channel with no provider configured is simply absent, and its messages
 	// stay queued until one appears, so nothing is lost during setup.
+	// Email links point at the frontend, which differs between a laptop, a
+	// preview deployment and production.
+	notify.SetFrontendURL(cfg.FrontendURL)
+
 	var senders []notify.Sender
 	switch resend := notify.NewResend(cfg.ResendAPIKey, cfg.MailFrom); {
 	case resend.Configured():
