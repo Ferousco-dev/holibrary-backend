@@ -24,10 +24,12 @@ import (
 	_ "time/tzdata"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
 	"github.com/Ferousco-dev/holibrary-backend/internal/books"
 	"github.com/Ferousco-dev/holibrary-backend/internal/config"
+	"github.com/Ferousco-dev/holibrary-backend/internal/migrate"
 	"github.com/Ferousco-dev/holibrary-backend/internal/notify"
 	"github.com/Ferousco-dev/holibrary-backend/internal/queue"
 	"github.com/Ferousco-dev/holibrary-backend/internal/ratelimit"
@@ -84,6 +86,32 @@ func runSchedule(ctx context.Context, circulation *service.CirculationService,
 	}
 }
 
+// migrationLockID is an arbitrary constant that identifies this application's
+// migration lock. Any two processes using the same number are serialised.
+const migrationLockID = 8_1_9_2_2_6
+
+// withAdvisoryLock runs fn while holding a Postgres advisory lock.
+//
+// The lock is held on a single connection for the duration and released when it
+// returns, so a crashed process does not leave the schema locked: Postgres drops
+// advisory locks when the session ends.
+func withAdvisoryLock(ctx context.Context, db *pgxpool.Pool, fn func() error) error {
+	conn, err := db.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationLockID); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, migrationLockID)
+	}()
+
+	return fn()
+}
+
 func run() error {
 	// JSON logs so a hosting platform can index them. Structured fields also
 	// make it harder to accidentally interpolate a member's details into a
@@ -114,6 +142,24 @@ func run() error {
 	}
 	defer db.Close()
 	slog.Info("database connected")
+
+	// Bring the schema up to date before serving. An advisory lock means two
+	// instances starting together do not both try; the second waits, finds
+	// nothing pending, and continues.
+	if err := withAdvisoryLock(ctx, db, func() error {
+		ran, err := migrate.Apply(ctx, db, cfg.SeedDemoData)
+		if err != nil {
+			return err
+		}
+		if len(ran) > 0 {
+			slog.Info("migrations applied", "count", len(ran), "files", ran)
+		} else {
+			slog.Info("database schema is up to date")
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("migrating: %w", err)
+	}
 
 	// Stores.
 	users := postgres.NewUserRepo(db)

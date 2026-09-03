@@ -33,6 +33,11 @@ type Config struct {
 	// once the deployment guarantees a proxy rewrites them (DEF-019).
 	TrustProxyHeaders bool
 
+	// SeedDemoData applies the demonstration migration, whose accounts have
+	// passwords published in a public repository. Development only; a
+	// production deployment that sets this hands out an administrator account.
+	SeedDemoData bool
+
 	ResendAPIKey string
 	MailFrom     string
 
@@ -80,6 +85,7 @@ func Load() (Config, error) {
 	}
 
 	c.TrustProxyHeaders = os.Getenv("TRUST_PROXY_HEADERS") == "true"
+	c.SeedDemoData = os.Getenv("SEED_DEMO_DATA") == "true"
 
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")
@@ -91,6 +97,16 @@ func Load() (Config, error) {
 	// configuration error rather than a warning.
 	if len(c.JWTSecret) < 32 {
 		return c, fmt.Errorf("JWT_SECRET must be at least 32 characters")
+	}
+	// The value committed to docker-compose.yml for local development is public.
+	// Refusing it in production is cheaper than discovering later that anyone
+	// who read the repository can forge an administrator token.
+	if c.IsProduction() && strings.Contains(c.JWTSecret, "development-secret") {
+		return c, fmt.Errorf("JWT_SECRET is the published development value; generate a real one")
+	}
+	if c.IsProduction() && c.SeedDemoData {
+		return c, fmt.Errorf(
+			"SEED_DEMO_DATA must not be set in production: the seeded accounts have published passwords")
 	}
 	return c, nil
 }

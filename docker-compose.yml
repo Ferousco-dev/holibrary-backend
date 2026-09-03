@@ -18,8 +18,10 @@ services:
       - "55432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Migrations run in filename order on first start of an empty volume.
-      - ./migrations:/docker-entrypoint-initdb.d:ro
+      # Migrations are NOT mounted here any more. The API applies them at
+      # startup from its embedded copy, which is the same code path production
+      # uses -- so a migration that works locally has been tested, rather than
+      # merely having worked under a different mechanism.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U holibrary"]
       interval: 5s
@@ -43,6 +45,8 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: development-secret-not-for-production-use-32
       CORS_ORIGINS: http://localhost:5173
+      # Demonstration data, with published credentials. Development only.
+      SEED_DEMO_DATA: "true"
     ports:
       - "8080:8080"
 
