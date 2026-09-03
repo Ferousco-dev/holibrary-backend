@@ -145,7 +145,11 @@ func (h *CirculationHandler) List(w http.ResponseWriter, r *http.Request) {
 	// overdue however late it came back.
 	openOnly := overdueOnly || boolParam(r, "open")
 
-	loans, total, err := h.circulation.ListLoans(r.Context(), overdueOnly, openOnly, limit, offset)
+	// synthetic=true restricts the result to simulated borrowers, so the
+	// activity simulator can find the loans it created without touching a real
+	// member's record.
+	loans, total, err := h.circulation.ListLoans(r.Context(), overdueOnly, openOnly,
+		limit, offset, boolParam(r, "synthetic"))
 	if err != nil {
 		response.FromError(w, err)
 		return

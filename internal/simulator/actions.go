@@ -122,6 +122,11 @@ func (a *Agent) RegisterMembers(ctx context.Context, count int) []SimMember {
 			"category":   archetype.Category,
 			"department": department,
 			"level":      level,
+			// Flagged, so a simulated borrower can never be mistaken for a real
+			// student in a report or a conversation with a librarian, and so
+			// every trace of the simulator is removable in one statement when
+			// the library's real records arrive (DEC-021).
+			"is_synthetic": true,
 		}, &result, a.staffToken)
 		if err != nil || status != http.StatusCreated {
 			continue
@@ -213,13 +218,19 @@ func (a *Agent) borrow(ctx context.Context, member SimMember, bookID string) {
 	}
 }
 
-// returnSomething brings back a book that is currently out.
+// returnSomething brings back a book a SIMULATED member is holding.
+//
+// The filter is not a nicety. Asking for all open loans and returning one at
+// random meant the simulator could close a real student's loan and put their
+// book back on the shelf while they still had it -- silent corruption of the
+// exact record this system exists to keep. It now sees only its own members'
+// loans (DEF-023).
 func (a *Agent) returnSomething(ctx context.Context) {
 	var loans []struct {
 		ID string `json:"id"`
 	}
 	if _, _, err := a.call(ctx, http.MethodGet,
-		"/api/v1/loans?open=true&per_page=40", nil, &loans, a.staffToken); err != nil || len(loans) == 0 {
+		"/api/v1/loans?open=true&synthetic=true&per_page=40", nil, &loans, a.staffToken); err != nil || len(loans) == 0 {
 		return
 	}
 

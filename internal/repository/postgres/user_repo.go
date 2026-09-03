@@ -20,14 +20,15 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo { return &UserRepo{db: db} }
 const userColumns = `id, identifier, email, full_name,
                      coalesce(first_name,''), coalesce(last_name,''),
                      coalesce(faculty,''), coalesce(department,''), coalesce(level,''),
-                     role, category, status, must_change_password, created_at, updated_at`
+                     role, category, status, must_change_password, is_synthetic,
+                     created_at, updated_at`
 
 func scanUser(row pgx.Row) (domain.User, error) {
 	var u domain.User
 	var category *string
 	err := row.Scan(&u.ID, &u.Identifier, &u.Email, &u.FullName,
 		&u.FirstName, &u.LastName, &u.Faculty, &u.Department, &u.Level,
-		&u.Role, &category, &u.Status, &u.MustChangePassword,
+		&u.Role, &category, &u.Status, &u.MustChangePassword, &u.IsSynthetic,
 		&u.CreatedAt, &u.UpdatedAt)
 	if category != nil {
 		c := domain.MemberCategory(*category)
@@ -50,7 +51,7 @@ func (r *UserRepo) FindByLogin(ctx context.Context, login string) (domain.User, 
 	err := r.db.QueryRow(ctx, q, strings.TrimSpace(login)).Scan(
 		&u.ID, &u.Identifier, &u.Email, &u.FullName,
 		&u.FirstName, &u.LastName, &u.Faculty, &u.Department, &u.Level,
-		&u.Role, &category, &u.Status, &u.MustChangePassword,
+		&u.Role, &category, &u.Status, &u.MustChangePassword, &u.IsSynthetic,
 		&u.CreatedAt, &u.UpdatedAt, &hash)
 	if err != nil {
 		return domain.User{}, "", translate(err)
@@ -88,18 +89,24 @@ type CreateUserParams struct {
 	PasswordHash string
 	Role         domain.Role
 	Category     *domain.MemberCategory
+	// IsSynthetic marks an account created by the activity simulator, so it can
+	// be excluded from reports and removed in one statement. An unmarked
+	// simulated member is indistinguishable from a real student, which is how
+	// a demonstration quietly becomes a data-quality problem.
+	IsSynthetic bool
 }
 
 func (r *UserRepo) Create(ctx context.Context, p CreateUserParams) (domain.User, error) {
 	const q = `INSERT INTO users (identifier, email, full_name, first_name, last_name,
-	                             faculty, department, level, password_hash, role, category)
-	           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+	                             faculty, department, level, password_hash, role,
+	                             category, is_synthetic)
+	           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 	           RETURNING ` + userColumns
 
 	u, err := scanUser(r.db.QueryRow(ctx, q,
 		p.Identifier, p.Email, p.FullName, nullif(p.FirstName), nullif(p.LastName),
 		nullif(p.Faculty), nullif(p.Department), nullif(p.Level),
-		p.PasswordHash, p.Role, p.Category))
+		p.PasswordHash, p.Role, p.Category, p.IsSynthetic))
 	if err != nil {
 		if isUniqueViolation(err, "") {
 			return domain.User{}, domain.ErrConflict
@@ -138,7 +145,7 @@ func (r *UserRepo) List(ctx context.Context, search string, limit, offset int) (
 		var category *string
 		if err := rows.Scan(&u.ID, &u.Identifier, &u.Email, &u.FullName,
 			&u.FirstName, &u.LastName, &u.Faculty, &u.Department, &u.Level,
-			&u.Role, &category, &u.Status, &u.MustChangePassword,
+			&u.Role, &category, &u.Status, &u.MustChangePassword, &u.IsSynthetic,
 			&u.CreatedAt, &u.UpdatedAt, &total); err != nil {
 			return nil, 0, translate(err)
 		}

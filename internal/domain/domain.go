@@ -147,6 +147,7 @@ type User struct {
 	Category           *MemberCategory // nil for staff accounts
 	Status             UserStatus
 	MustChangePassword bool
+	IsSynthetic        bool
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }

@@ -56,6 +56,10 @@ type createMemberRequest struct {
 	Level      string `json:"level"`
 	Role       string `json:"role"`
 	Category   string `json:"category"`
+	// IsSynthetic flags an account created by the activity simulator. Staff-only
+	// like the rest of this request, and false unless explicitly set, so a real
+	// registration can never be mistaken for a simulated one or the reverse.
+	IsSynthetic bool `json:"is_synthetic"`
 }
 
 // Create registers a member at the desk (REQ-009).
@@ -69,16 +73,17 @@ func (h *MemberHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, temporary, err := h.members.Create(r.Context(), middleware.Role(r.Context()), service.NewMemberParams{
-		Identifier: req.Identifier,
-		Email:      req.Email,
-		FullName:   req.FullName,
-		FirstName:  req.FirstName,
-		LastName:   req.LastName,
-		Faculty:    req.Faculty,
-		Department: req.Department,
-		Level:      req.Level,
-		Category:   domain.MemberCategory(req.Category),
-		Role:       domain.Role(req.Role),
+		Identifier:  req.Identifier,
+		Email:       req.Email,
+		FullName:    req.FullName,
+		FirstName:   req.FirstName,
+		LastName:    req.LastName,
+		Faculty:     req.Faculty,
+		Department:  req.Department,
+		Level:       req.Level,
+		Category:    domain.MemberCategory(req.Category),
+		Role:        domain.Role(req.Role),
+		IsSynthetic: req.IsSynthetic,
 	})
 	if err != nil {
 		// Known domain errors carry their own status: a librarian attempting to

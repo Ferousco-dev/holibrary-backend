@@ -17,7 +17,7 @@ type CirculationStore interface {
 	Borrow(ctx context.Context, p postgres.BorrowParams) (domain.Loan, error)
 	Return(ctx context.Context, loanID, staffID uuid.UUID) (domain.Loan, error)
 	LoansForUser(ctx context.Context, userID uuid.UUID, openOnly bool) ([]domain.Loan, error)
-	ListLoans(ctx context.Context, overdueOnly, openOnly bool, limit, offset int) ([]domain.Loan, int, error)
+	ListLoans(ctx context.Context, overdueOnly, openOnly bool, limit, offset int, syntheticOnly bool) ([]domain.Loan, int, error)
 	Stats(ctx context.Context) (postgres.Stats, error)
 }
 
@@ -149,8 +149,8 @@ func (s *CirculationService) MemberHistory(ctx context.Context, memberID uuid.UU
 }
 
 // ListLoans serves the circulation view, optionally narrowed to overdue items.
-func (s *CirculationService) ListLoans(ctx context.Context, overdueOnly, openOnly bool, limit, offset int) ([]domain.Loan, int, error) {
-	return s.loans.ListLoans(ctx, overdueOnly, openOnly, limit, offset)
+func (s *CirculationService) ListLoans(ctx context.Context, overdueOnly, openOnly bool, limit, offset int, syntheticOnly bool) ([]domain.Loan, int, error) {
+	return s.loans.ListLoans(ctx, overdueOnly, openOnly, limit, offset, syntheticOnly)
 }
 
 func (s *CirculationService) Stats(ctx context.Context) (postgres.Stats, error) {
@@ -163,7 +163,7 @@ func (s *CirculationService) Stats(ctx context.Context) (postgres.Stats, error) 
 // read from a stored flag, so a reminder is never sent against a stale value
 // (REQ-053, REQ-069, REQ-070).
 func (s *CirculationService) NotifyDueSoon(ctx context.Context, window time.Duration) (int, error) {
-	open, _, err := s.loans.ListLoans(ctx, false, true, 500, 0)
+	open, _, err := s.loans.ListLoans(ctx, false, true, 500, 0, false)
 	if err != nil {
 		return 0, err
 	}

@@ -45,6 +45,8 @@ type NewMemberParams struct {
 	Level      string
 	Category   domain.MemberCategory
 	Role       domain.Role
+	// IsSynthetic marks a simulated borrower (DEC-021).
+	IsSynthetic bool
 }
 
 // displayName assembles the name shown across the system.
@@ -134,6 +136,7 @@ func (s *MemberService) Create(ctx context.Context, actor domain.Role, p NewMemb
 		PasswordHash: hash,
 		Role:         role,
 		Category:     category,
+		IsSynthetic:  p.IsSynthetic,
 	})
 	if err != nil {
 		return domain.User{}, "", err

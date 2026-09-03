@@ -51,6 +51,8 @@ func main() {
 		seed         = flag.Int64("seed", 0, "random seed; 0 means unpredictable")
 		record       = flag.String("record", os.Getenv("DATABASE_URL"), "record each run in simulation_runs; empty to skip")
 		asJSON       = flag.Bool("json", false, "emit the report as JSON")
+		allowReal    = flag.Bool("allow-real-data", false,
+			"run even though this instance holds real member records (destructive; do not use in production)")
 	)
 	flag.Parse()
 
@@ -88,7 +90,7 @@ func main() {
 	}
 
 	runOnce := func() int {
-		report, err := runPass(ctx, model, opts, password)
+		report, err := runPass(ctx, model, opts, password, *allowReal)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "pass failed:", err)
 			return 1
@@ -145,9 +147,12 @@ func main() {
 var token string
 
 func runPass(ctx context.Context, model *simulator.Model,
-	opts simulator.Options, password string) (*simulator.Report, error) {
+	opts simulator.Options, password string, allowRealData bool) (*simulator.Report, error) {
 
-	agent := simulator.NewAgent(model, opts)
+	agent, err := simulator.NewAgent(model, opts)
+	if err != nil {
+		return nil, err
+	}
 
 	if token != "" {
 		agent.UseToken(token)
@@ -165,6 +170,14 @@ func runPass(ctx context.Context, model *simulator.Model,
 			return nil, err
 		}
 		token = agent.Token()
+	}
+
+	// Refuse to generate activity against real records unless told to.
+	if safe, why := agent.SafeToRun(ctx); !safe && !allowRealData {
+		return nil, fmt.Errorf("%s\n"+
+			"  The simulator lends books, registers borrowers and closes loans. Against a\n"+
+			"  real member roll that is not a demonstration.\n"+
+			"  Pass -allow-real-data only if you are certain.", why)
 	}
 
 	agent.StockCatalogue(ctx, model.Pass.MaxNewTitles)

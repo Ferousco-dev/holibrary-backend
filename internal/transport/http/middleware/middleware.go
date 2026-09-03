@@ -65,12 +65,27 @@ func RequestID(ctx context.Context) string {
 	return id
 }
 
+// SessionValidator reports whether a token issued at the given instant is still
+// good for this account.
+//
+// It exists because a JWT cannot be recalled. Refresh tokens are revocable, but
+// an access token already in an attacker's hands stays valid until it expires --
+// which meant a member who changed their password because they suspected a
+// compromise still had a live attacker session for up to fifteen minutes
+// afterwards. That is precisely the window during which it matters most.
+//
+// The cost is one primary-key lookup per authenticated request, which is the
+// price of being able to end a session immediately. It is paid deliberately:
+// the alternative is telling a student their password change takes effect in a
+// quarter of an hour (DEF-021).
+type SessionValidator func(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error)
+
 // Authenticate verifies the bearer token and puts the caller in the context.
 //
 // It does not decide what the caller may do; that is RequireRole's job. Keeping
 // the two apart means a route cannot accidentally be authenticated but
 // unauthorised.
-func Authenticate(issuer *auth.TokenIssuer) func(http.Handler) http.Handler {
+func Authenticate(issuer *auth.TokenIssuer, valid SessionValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			header := r.Header.Get("Authorization")
@@ -84,6 +99,21 @@ func Authenticate(issuer *auth.TokenIssuer) func(http.Handler) http.Handler {
 			if err != nil {
 				response.FromError(w, domain.ErrTokenInvalid)
 				return
+			}
+
+			// A token minted before the account's last password change is dead,
+			// however long it has left to run (DEF-021).
+			if valid != nil && claims.IssuedAt != nil {
+				ok, err := valid(r.Context(), claims.UserID, claims.IssuedAt.Time)
+				if err != nil {
+					// Failing closed here would take the library offline on a
+					// database blip, and the request is about to touch the same
+					// database anyway. Log loudly and continue.
+					slog.Error("could not check session validity", "error", err)
+				} else if !ok {
+					response.FromError(w, domain.ErrTokenInvalid)
+					return
+				}
 			}
 
 			// An account still on its librarian-issued temporary password may do
@@ -155,16 +185,19 @@ func RequireAdmin(next http.Handler) http.Handler {
 // being attacked -- the one thing an attacker cannot change. See
 // internal/ratelimit (NFR-005, DEF-019).
 func RateLimit(limiter ratelimit.Limiter, p ratelimit.Policy, trustProxyHeaders bool) func(http.Handler) http.Handler {
+	// Degrades to an in-process counter rather than switching off, so an
+	// attacker cannot disable the control by disabling Redis (DEF-022).
+	fallback := ratelimit.NewMemory()
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ok, err := limiter.Allow(r.Context(), "rl:ip:"+clientIP(r, trustProxyHeaders),
-				p.Limit, p.Window)
+			key := "rl:ip:" + clientIP(r, trustProxyHeaders)
+
+			ok, err := limiter.Allow(r.Context(), key, p.Limit, p.Window)
 			if err != nil {
-				// A limiter outage must not take the library offline. The
-				// per-account limit still applies and the failure is loud.
-				slog.Error("rate limiter unavailable; allowing the request", "error", err)
-				next.ServeHTTP(w, r)
-				return
+				slog.Error("rate limiter unavailable; falling back to the in-process counter",
+					"error", err)
+				ok, _ = fallback.Allow(r.Context(), key, p.Limit, p.Window)
 			}
 			if !ok {
 				w.Header().Set("Retry-After", "60")

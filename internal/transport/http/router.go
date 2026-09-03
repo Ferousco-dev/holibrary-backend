@@ -29,6 +29,10 @@ type Options struct {
 	Issuer      *auth.TokenIssuer
 	CORSOrigins []string
 	Limiter     ratelimit.Limiter
+	// SessionValid rejects an access token minted before its owner's last
+	// password change. Optional; without it a token stays usable until it
+	// expires (DEF-021).
+	SessionValid middleware.SessionValidator
 	// TrustProxyHeaders says whether CF-Connecting-IP and X-Forwarded-For may be
 	// believed. False unless the deployment guarantees every request passes
 	// through a proxy that rewrites them (DEF-019).
@@ -44,7 +48,7 @@ type Options struct {
 func NewRouter(h Handlers, opts Options) http.Handler {
 	mux := http.NewServeMux()
 
-	authenticate := middleware.Authenticate(opts.Issuer)
+	authenticate := middleware.Authenticate(opts.Issuer, opts.SessionValid)
 
 	// Coarse per-network throttle. The precise per-account limit that actually
 	// stops password guessing lives in the authentication service, because only

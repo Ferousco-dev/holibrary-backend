@@ -53,6 +53,9 @@ type AuthService struct {
 	notifier Notifier
 	issuer   *auth.TokenIssuer
 	limiter  ratelimit.Limiter
+	// fallback takes over when the shared limiter is unreachable, so an outage
+	// degrades the control instead of removing it (DEF-022).
+	fallback ratelimit.Limiter
 	now      func() time.Time
 }
 
@@ -60,7 +63,8 @@ func NewAuthService(u UserStore, t TokenStore, n Notifier, i *auth.TokenIssuer,
 	l ratelimit.Limiter) *AuthService {
 	return &AuthService{
 		users: u, tokens: t, notifier: n, issuer: i, limiter: l,
-		now: func() time.Time { return time.Now().UTC() },
+		fallback: ratelimit.NewMemory(),
+		now:      func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -71,18 +75,32 @@ func NewAuthService(u UserStore, t TokenStore, n Notifier, i *auth.TokenIssuer,
 // campus NAT while leaving anyone with a handful of addresses free to guess
 // (DEF-019).
 //
-// A limiter failure permits the request. Redis being down must not lock every
-// member out of the library; the coarse per-IP limit in the middleware still
-// applies, and the failure is loud in the logs.
+// A limiter failure falls back to an in-process counter rather than allowing the
+// request.
+//
+// Permitting on error was worse than it looked: an attacker who could make Redis
+// unavailable -- or simply wait for it to be -- switched the brute-force
+// protection off entirely. The fallback is weaker than Redis (single process,
+// lost on restart) but it is not nothing, and "degraded" beats "disabled" for a
+// control whose whole purpose is to survive an adversary (DEF-022).
 func (s *AuthService) allow(ctx context.Context, scope, identity string, p ratelimit.Policy) bool {
 	if s.limiter == nil {
 		return true
 	}
-	ok, err := s.limiter.Allow(ctx, "rl:"+scope+":"+strings.ToLower(strings.TrimSpace(identity)),
-		p.Limit, p.Window)
-	if err != nil {
-		slog.Error("rate limiter unavailable; allowing the request", "scope", scope, "error", err)
-		return true
+	key := "rl:" + scope + ":" + strings.ToLower(strings.TrimSpace(identity))
+
+	ok, err := s.limiter.Allow(ctx, key, p.Limit, p.Window)
+	if err == nil {
+		return ok
+	}
+
+	slog.Error("rate limiter unavailable; falling back to the in-process counter",
+		"scope", scope, "error", err)
+	ok, fallbackErr := s.fallback.Allow(ctx, key, p.Limit, p.Window)
+	if fallbackErr != nil {
+		// The in-memory limiter cannot fail, but if it somehow did, refusing is
+		// the safe answer for a credential endpoint.
+		return false
 	}
 	return ok
 }
@@ -187,17 +205,11 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (Session
 		return Session{}, domain.ErrMemberNotActive
 	}
 
-	// A refresh that began before a password change must not complete after it.
-	// The token was consumed a moment ago and could have been minted before the
-	// change; checking the account's stamp here is what stops an attacker
-	// racing the victim's password change to obtain a fresh session. DEF-015.
-	invalidBefore, err := s.users.TokensInvalidBefore(ctx, userID)
-	if err != nil {
-		return Session{}, err
-	}
-	if !s.now().After(invalidBefore) {
-		return Session{}, domain.ErrTokenInvalid
-	}
+	// The token's age against the account's stamp is checked by
+	// ConsumeRefreshToken, in the same statement that consumes it. It is
+	// deliberately not re-checked here: a second comparison in Go, against a
+	// stamp read a moment later, would be exactly the race the stamp exists to
+	// close (DEF-015, DEF-020).
 	return s.issueSession(ctx, user)
 }
 

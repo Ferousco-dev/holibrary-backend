@@ -17,9 +17,10 @@ import (
 // which is what keeping business rules out of the repository layer buys us.
 
 type fakeLoans struct {
-	borrowed  postgres.BorrowParams
-	borrowErr error
-	open      []domain.Loan
+	borrowed           postgres.BorrowParams
+	borrowErr          error
+	open               []domain.Loan
+	askedSyntheticOnly bool
 }
 
 func (f *fakeLoans) Borrow(_ context.Context, p postgres.BorrowParams) (domain.Loan, error) {
@@ -40,7 +41,8 @@ func (f *fakeLoans) LoansForUser(_ context.Context, _ uuid.UUID, _ bool) ([]doma
 	return f.open, nil
 }
 
-func (f *fakeLoans) ListLoans(_ context.Context, _, _ bool, _, _ int) ([]domain.Loan, int, error) {
+func (f *fakeLoans) ListLoans(_ context.Context, _, _ bool, _, _ int, syntheticOnly bool) ([]domain.Loan, int, error) {
+	f.askedSyntheticOnly = syntheticOnly
 	return f.open, len(f.open), nil
 }
 

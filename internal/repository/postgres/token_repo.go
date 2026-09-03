@@ -30,12 +30,31 @@ func (r *TokenRepo) SaveRefreshToken(ctx context.Context, userID uuid.UUID, hash
 //
 // Revoking as part of the lookup makes refresh single-use: the token is rotated
 // on every exchange, so a stolen one is good for at most one call.
+//
+// The token must also have been ISSUED after the owner's last password change.
+// That comparison belongs here, in the same statement that consumes the token,
+// for two reasons:
+//
+//   - It is the token's own creation time that matters, not the moment the
+//     refresh happens. An earlier version compared `now()` against the stamp,
+//     which is trivially true for every refresh after any password change and
+//     therefore rejected nothing at all. The check existed and did nothing.
+//
+//   - Doing it in the consume statement leaves no window. Reading the stamp
+//     separately and comparing in Go reopens the race the stamp was added to
+//     close.
+//
+// DEF-015, corrected in DEF-020.
 func (r *TokenRepo) ConsumeRefreshToken(ctx context.Context, hash string) (uuid.UUID, error) {
 	var userID uuid.UUID
 	err := r.db.QueryRow(ctx, `
-		UPDATE refresh_tokens SET revoked_at = now()
-		 WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
-		RETURNING user_id`, hash).Scan(&userID)
+		UPDATE refresh_tokens r SET revoked_at = now()
+		 WHERE r.token_hash = $1
+		   AND r.revoked_at IS NULL
+		   AND r.expires_at > now()
+		   AND r.created_at >= (SELECT u.tokens_invalid_before
+		                          FROM users u WHERE u.id = r.user_id)
+		RETURNING r.user_id`, hash).Scan(&userID)
 	if err != nil {
 		return uuid.Nil, translate(err)
 	}

@@ -24,6 +24,9 @@ type fakeUsers struct {
 	newHash       string
 	updateErr     error
 	invalidBefore time.Time
+	// tokens is the paired token store, so a password change stamps both, as
+	// one SQL statement and one join would.
+	tokens *fakeTokens
 }
 
 func (f *fakeUsers) FindByLogin(_ context.Context, _ string) (domain.User, string, error) {
@@ -43,16 +46,31 @@ func (f *fakeUsers) PasswordHash(_ context.Context, _ uuid.UUID) (string, error)
 }
 func (f *fakeUsers) UpdatePassword(_ context.Context, _ uuid.UUID, hash string) error {
 	f.newHash = hash
-	f.invalidBefore = time.Now().UTC().Add(time.Second) // as the SQL stamp does
+	// The real statement stamps tokens_invalid_before alongside the new hash.
+	stamp := time.Now().UTC().Add(time.Millisecond)
+	f.invalidBefore = stamp
+	if f.tokens != nil {
+		f.tokens.invalidBefore = &stamp
+	}
 	return f.updateErr
 }
 func (f *fakeUsers) TokensInvalidBefore(context.Context, uuid.UUID) (time.Time, error) {
 	return f.invalidBefore, nil
 }
 
+// fakeTokens mirrors what the real store does, including the rule that a
+// refresh token issued before its owner's last password change is dead.
+//
+// That rule lives in SQL, inside the statement that consumes the token. A fake
+// that omits it does not merely under-test: it actively asserts that the wrong
+// thing is correct. An earlier version of this fake ignored the stamp, so the
+// regression test for DEF-015 passed against an implementation that in fact
+// rejected nothing at all (DEF-020).
 type fakeTokens struct {
 	savedRefresh  string
 	refreshOwner  uuid.UUID
+	refreshIssued time.Time
+	invalidBefore *time.Time // shared with the user store, as the real join is
 	consumeErr    error
 	revoked       string
 	revokedAllFor uuid.UUID
@@ -63,10 +81,21 @@ type fakeTokens struct {
 
 func (f *fakeTokens) SaveRefreshToken(_ context.Context, u uuid.UUID, hash string, _ time.Time) error {
 	f.savedRefresh, f.refreshOwner = hash, u
+	f.refreshIssued = time.Now().UTC()
 	return nil
 }
+
 func (f *fakeTokens) ConsumeRefreshToken(_ context.Context, _ string) (uuid.UUID, error) {
-	return f.refreshOwner, f.consumeErr
+	if f.consumeErr != nil {
+		return uuid.Nil, f.consumeErr
+	}
+	// The real query joins users and requires
+	//   refresh_tokens.created_at >= users.tokens_invalid_before
+	// so a token minted before the last password change matches no row.
+	if f.invalidBefore != nil && f.refreshIssued.Before(*f.invalidBefore) {
+		return uuid.Nil, domain.ErrNotFound
+	}
+	return f.refreshOwner, nil
 }
 func (f *fakeTokens) RevokeRefreshToken(_ context.Context, hash string) error {
 	f.revoked = hash
@@ -380,7 +409,8 @@ func TestResetPasswordEnforcesTheMinimumPolicy(t *testing.T) {
 // issued (DEF-015).
 func TestRefreshIsRejectedAfterAPasswordChange(t *testing.T) {
 	users, user := activeMember(t, "library2026x")
-	tokens := &fakeTokens{refreshOwner: user.ID}
+	tokens := &fakeTokens{refreshOwner: user.ID, refreshIssued: time.Now().UTC()}
+	users.tokens = tokens
 	svc := newAuth(t, users, tokens, &fakeNotifier{})
 
 	// Before the change, refresh works.

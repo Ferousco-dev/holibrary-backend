@@ -7,6 +7,43 @@ import (
 	"time"
 )
 
+// SafeToRun reports whether this instance holds real member records.
+//
+// The simulator lends books, registers borrowers and closes loans. Against a
+// database holding a real member roll that is not a demonstration, it is
+// vandalism -- and the damage is quiet, because every action it takes is a
+// perfectly valid library operation.
+//
+// So the default is to refuse. An instance with even one non-synthetic member
+// must be opted into explicitly, and the operator has to mean it (DEF-023).
+func (a *Agent) SafeToRun(ctx context.Context) (bool, string) {
+	var members []struct {
+		ID          string `json:"id"`
+		FullName    string `json:"full_name"`
+		Role        string `json:"role"`
+		IsSynthetic bool   `json:"is_synthetic"`
+	}
+	if _, _, err := a.call(ctx, http.MethodGet,
+		"/api/v1/members?per_page=100", nil, &members, a.staffToken); err != nil {
+		return false, "could not read the member roll: " + err.Error()
+	}
+
+	// Staff accounts are expected and are not what this guard protects. The
+	// simulator signs in as a librarian, so a librarian must exist; what must
+	// not exist is a real BORROWER, whose loans the simulator could disturb.
+	real := 0
+	for _, m := range members {
+		if m.Role == "member" && !m.IsSynthetic {
+			real++
+		}
+	}
+	if real > 0 {
+		return false, fmt.Sprintf(
+			"this instance holds %d real borrower record(s); refusing to generate activity against it", real)
+	}
+	return true, fmt.Sprintf("%d members, all synthetic", len(members))
+}
+
 // RunChecks asserts that the library is in a sane state after the pass.
 //
 // This is what separates a simulator from a seeder. Generating traffic proves

@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -62,22 +63,61 @@ type Options struct {
 	Seed            int64
 }
 
-func NewAgent(model *Model, opts Options) *Agent {
+func NewAgent(model *Model, opts Options) (*Agent, error) {
 	seed := opts.Seed
 	if seed == 0 {
 		seed = time.Now().UnixNano()
 	}
+
+	catalogue, err := books.NewOpenLibrary(opts.CatalogueURL)
+	if err != nil {
+		return nil, err
+	}
+
+	// The simulator sends a librarian's bearer token to whatever -url names, so
+	// that address decides who receives staff credentials. A hostile or
+	// mistyped value hands them over. Refuse anything that is not plainly local
+	// or https (DEF-025).
+	base, err := safeTargetURL(opts.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Agent{
-		baseURL:   strings.TrimRight(opts.BaseURL, "/"),
+		baseURL:   base,
 		http:      &http.Client{Timeout: 20 * time.Second},
 		model:     model,
-		catalogue: books.NewOpenLibrary(opts.CatalogueURL),
+		catalogue: catalogue,
 		rng:       rand.New(rand.NewSource(seed)),
 		report: &Report{
 			StartedAt: time.Now().UTC(),
 			Refusals:  map[string]int{},
 		},
+	}, nil
+}
+
+// safeTargetURL rejects a target that should not receive staff credentials.
+//
+// The simulator authenticates as a librarian and sends that bearer token with
+// every request. Whatever -url points at therefore receives it. Plain http is
+// allowed only for a local address, where the traffic does not leave the
+// machine (DEF-025).
+func safeTargetURL(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimRight(raw, "/"))
+	if err != nil {
+		return "", fmt.Errorf("the target URL is not a valid URL: %w", err)
 	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "", fmt.Errorf("the target URL must be http or https, not %q", u.Scheme)
+	}
+
+	host := u.Hostname()
+	isLocal := host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "api"
+	if u.Scheme == "http" && !isLocal {
+		return "", fmt.Errorf(
+			"refusing to send librarian credentials to %q over plain http; use https", host)
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 // apiError is the API's error envelope.

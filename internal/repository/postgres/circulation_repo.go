@@ -280,16 +280,20 @@ func (r *CirculationRepo) LoansForUser(ctx context.Context, userID uuid.UUID, op
 // Overdue is expressed as a predicate over due_at and returned_at rather than
 // read from a column. There is no is_overdue field to fall out of date, which is
 // the whole point (REQ-052, REQ-053).
-func (r *CirculationRepo) ListLoans(ctx context.Context, overdueOnly, openOnly bool, limit, offset int) ([]domain.Loan, int, error) {
+func (r *CirculationRepo) ListLoans(ctx context.Context, overdueOnly, openOnly bool, limit, offset int, syntheticOnly bool) ([]domain.Loan, int, error) {
 	q := loanFields + `, count(*) OVER() AS total` + loanFrom + `
 	 WHERE (NOT $1 OR (l.returned_at IS NULL AND l.due_at < now()))
 	   AND (NOT $2 OR l.returned_at IS NULL)
+	   -- The activity simulator asks for its own loans only. Without this it
+	   -- would return real members' books at random, which in a database
+	   -- holding real records is data corruption rather than a demonstration.
+	   AND (NOT $5 OR u.is_synthetic)
 	 -- l.id breaks ties so paging through loans cannot repeat or skip a row
 	 -- when several share a due date (DEF-008).
 	 ORDER BY l.due_at, l.id
 	 LIMIT $3 OFFSET $4`
 
-	rows, err := r.db.Query(ctx, q, overdueOnly, openOnly, limit, offset)
+	rows, err := r.db.Query(ctx, q, overdueOnly, openOnly, limit, offset, syntheticOnly)
 	if err != nil {
 		return nil, 0, translate(err)
 	}

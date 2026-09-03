@@ -27,6 +27,9 @@ type userResponse struct {
 	Category           *string `json:"category"`
 	Status             string  `json:"status"`
 	MustChangePassword bool    `json:"must_change_password"`
+	// Visible so tooling, reports and the activity simulator can tell a
+	// simulated borrower from a real student without guessing.
+	IsSynthetic bool `json:"is_synthetic"`
 }
 
 func toUserResponse(u domain.User) userResponse {
@@ -39,6 +42,7 @@ func toUserResponse(u domain.User) userResponse {
 		ID: u.ID.String(), Identifier: u.Identifier, Email: u.Email,
 		FullName: u.FullName, Role: string(u.Role), Category: category,
 		Status: string(u.Status), MustChangePassword: u.MustChangePassword,
+		IsSynthetic: u.IsSynthetic,
 	}
 }
 

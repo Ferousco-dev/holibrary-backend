@@ -52,16 +52,75 @@ type OpenLibrary struct {
 	client  *http.Client
 }
 
-func NewOpenLibrary(baseURL string) *OpenLibrary {
-	if baseURL == "" {
-		baseURL = "https://openlibrary.org"
+// Allowed hosts for the external catalogue.
+//
+// The base URL is configuration rather than user input, but configuration is
+// not the same as trustworthy: an environment variable set by a compromised
+// deployment, a copied .env, or a typo pointing at an internal address turns
+// this client into a way to make the server fetch URLs of somebody else's
+// choosing. Server-side request forgery does not require the attacker to be a
+// user; it requires the server to fetch what it is told (DEF-024).
+var allowedCatalogueHosts = map[string]bool{
+	"openlibrary.org":     true,
+	"www.openlibrary.org": true,
+	// Local addresses so the test suite and offline development can point at a
+	// stub. These are unreachable from a deployed container anyway.
+	"localhost": true,
+	"127.0.0.1": true,
+}
+
+// safeBaseURL rejects a catalogue address that is not an allowed public host.
+//
+// It refuses rather than falls back silently: a system quietly using a different
+// catalogue than its operator configured is worse than one that will not start.
+func safeBaseURL(raw string) (string, error) {
+	if raw == "" {
+		return "https://openlibrary.org", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("the catalogue URL is not a valid URL: %w", err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "", fmt.Errorf("the catalogue URL must be http or https, not %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if !allowedCatalogueHosts[host] {
+		return "", fmt.Errorf("%q is not an allowed catalogue host", host)
+	}
+	if u.Scheme == "http" && host != "localhost" && host != "127.0.0.1" {
+		return "", fmt.Errorf("the catalogue must be reached over https")
+	}
+	return strings.TrimRight(u.Scheme+"://"+u.Host, "/"), nil
+}
+
+// NewOpenLibrary builds a client, refusing a catalogue address that is not an
+// allowed host.
+func NewOpenLibrary(baseURL string) (*OpenLibrary, error) {
+	safe, err := safeBaseURL(baseURL)
+	if err != nil {
+		return nil, err
 	}
 	return &OpenLibrary{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: safe,
 		// An external catalogue that hangs must not hang the librarian's form.
 		// The point of I-10 is that our catalogue works without theirs.
-		client: &http.Client{Timeout: 12 * time.Second},
-	}
+		client: &http.Client{
+			Timeout: 12 * time.Second,
+			// Do not follow a redirect off the allowed host. A permitted
+			// catalogue that redirects is a permitted catalogue handing this
+			// client to somewhere else.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if !allowedCatalogueHosts[req.URL.Hostname()] {
+					return fmt.Errorf("refusing a redirect to %q", req.URL.Hostname())
+				}
+				if len(via) >= 3 {
+					return fmt.Errorf("too many redirects")
+				}
+				return nil
+			},
+		},
+	}, nil
 }
 
 type searchResponse struct {
@@ -112,6 +171,13 @@ func (o *OpenLibrary) Search(ctx context.Context, query string, limit int) ([]Me
 	// Cap the read rather than trusting a third party with this process's memory.
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("reading the external catalogue's reply: %w", err)
+	}
+
+	// The response is a third party's, so the number of records it returns is
+	// bounded here rather than trusted. A reply with a hundred thousand entries
+	// would otherwise become a hundred thousand allocations (DEF-024).
+	if len(parsed.Docs) > limit {
+		parsed.Docs = parsed.Docs[:limit]
 	}
 
 	out := make([]Metadata, 0, len(parsed.Docs))

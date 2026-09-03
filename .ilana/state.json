@@ -2,12 +2,12 @@
   "project": "group4-online-library-management-system",
   "course": "SEN 106 / SEN 216 - Introduction to Web Technologies",
   "institution": "Obafemi Awolowo University, Ile-Ife",
-  "mode": "FLEET",
-  "phase": "06",
+  "mode": "AUDIT",
+  "phase": null,
   "gate": "G5",
-  "agent": "configuration-engineer",
+  "agent": "quality-auditor",
   "process_style": "hybrid",
-  "rigour": 3,
+  "rigour": 4,
   "stack": {
     "language": "Go",
     "container": "Docker",
@@ -25,7 +25,14 @@
     "RSK-002",
     "RSK-003",
     "RSK-004",
-    "RSK-005"
+    "RSK-005",
+    "DEF-020",
+    "DEF-021",
+    "DEF-022",
+    "DEF-023",
+    "DEF-024",
+    "DEF-025",
+    "DEF-026"
   ],
   "overrides": [],
   "counters": {
@@ -34,7 +41,7 @@
     "DOM": 9,
     "DES": 11,
     "TC": 105,
-    "DEF": 19,
+    "DEF": 25,
     "CR": 0,
     "DEC": 13,
     "RSK": 5

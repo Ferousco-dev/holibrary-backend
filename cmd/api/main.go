@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -21,6 +22,8 @@ import (
 	// appears once deployed. This embeds the timezone database in the binary
 	// (~450 KB) so named zones resolve identically everywhere.
 	_ "time/tzdata"
+
+	"github.com/google/uuid"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
 	"github.com/Ferousco-dev/holibrary-backend/internal/books"
@@ -149,6 +152,14 @@ func run() error {
 		slog.Info("trusting proxy headers for client address; ensure the origin is not directly reachable")
 	}
 
+	// The external catalogue address is validated at startup rather than on
+	// first use, so a misconfigured or hostile URL stops the service instead of
+	// being discovered by a librarian mid-catalogue (DEF-024).
+	externalCatalogue, err := books.NewOpenLibrary(cfg.OpenLibraryBaseURL)
+	if err != nil {
+		return fmt.Errorf("external catalogue: %w", err)
+	}
+
 	// Services.
 	issuer := auth.NewTokenIssuer(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	authService := service.NewAuthService(users, tokens, outbox, issuer, limiter)
@@ -168,11 +179,25 @@ func run() error {
 		Members:      handler.NewMemberHandler(memberService, circulationService),
 		Reservations: handler.NewReservationHandler(reservationService),
 		Devices:      handler.NewDeviceHandler(outbox),
-		Lookup:       handler.NewLookupHandler(books.NewOpenLibrary(cfg.OpenLibraryBaseURL)),
+		Lookup:       handler.NewLookupHandler(externalCatalogue),
 		Admin:        handler.NewAdminHandler(circulationService, audit),
 		Ping:         func() error { return db.Ping(ctx) },
 	}, transport.Options{
-		Issuer:            issuer,
+		Issuer: issuer,
+		// A token issued before the account's last password change is dead,
+		// however long it has left to run. One primary-key lookup per
+		// authenticated request is the price of being able to end a session
+		// immediately rather than in fifteen minutes (DEF-021).
+		SessionValid: func(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error) {
+			invalidBefore, err := users.TokensInvalidBefore(ctx, userID)
+			if err != nil {
+				return false, err
+			}
+			// Whole-second granularity: JWT `iat` is a Unix second, so a token
+			// minted in the same second as a password change would otherwise
+			// compare as older than it.
+			return !issuedAt.Add(time.Second).Before(invalidBefore), nil
+		},
 		CORSOrigins:       cfg.CORSOrigins,
 		Limiter:           limiter,
 		TrustProxyHeaders: cfg.TrustProxyHeaders,

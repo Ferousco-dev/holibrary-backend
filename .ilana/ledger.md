@@ -238,6 +238,33 @@ Verified: 2-copy title lends one then refuses LAST_COPY_RETAINED; 1-copy title
 lends normally; ?available=true drops the retained title; a member may queue for
 a title whose only free copy is retained.
 
++## 2026-09-03 | AUDIT | quality-auditor | SECURITY AUDIT COMPLETE
+Mode changed from FLEET phase 06 to AUDIT at rigour 4 after stakeholder requested
+a re-audit of the simulator, external lookup, Redis limiter, and DEF-014..019.
+Assumptions: real member identity and lending data may be present; no immediate
+release deadline; a small student team operates the system.
+
+Evidence:
+  - `go test ./...`: passed. New `internal/books` and `internal/ratelimit`
+    packages have no tests.
+  - The simulator does not print its password/token normally, but sends the
+    staff bearer token to any configured `SIMULATOR_URL`. DEF-026 raised High.
+  - `migrations/0009_synthetic.sql` adds `is_synthetic`; source search found no
+    code path that reads or writes it.
+  - `internal/simulator/actions.go` lists all books/open loans and can lend or
+    return a randomly selected result. DEF-020 raised Critical.
+  - Refresh compares execution time rather than token creation/version with
+    `tokens_invalid_before`. DEF-021 raised Critical.
+  - JWT authentication does not consult invalidation state. DEF-022 raised High.
+  - Both HTTP and account limiters allow live Redis errors. DEF-023 raised High.
+  - External base URL/redirects/result cardinality are unconstrained; lookup lacks
+    outbound quota/cache/input bounds. DEF-024 High; DEF-025 Medium.
+
+Artifact: docs/ilana-audit.md
+Open: DEF-020..DEF-026, RSK-001..RSK-005.
+Decision: do not run the simulator against real library data; no audit gate is
+passed while DEF-020 and DEF-021 remain open.
+
 ## 2026-09-03 | 04 | constructor | REQ-069..072 NOTIFICATION DELIVERY
 Transactional outbox drained by a background worker. Resend for email, FCM for
 push, and a console sender used outside production so the whole pipeline can be
@@ -380,3 +407,30 @@ the wrong database. The compose file now maps 55432.
 
 Verified over five passes: 64 books, 116 copies, 25 members, 24 loans, and every
 consistency check passing on every run.
+
+## 2026-09-03 | 05 | verifier | SECOND ADVERSARIAL AUDIT
+A second audit was run against the code changed since the first. Six more
+defects, two Critical. The most important is DEF-020: the fix for DEF-015 had
+been reported closed and did nothing.
+
+  DEF-020 CRITICAL the DEF-015 fix compared now() rather than the token's issue
+          time, so it rejected nothing. The password-change race stayed open
+          behind a check that appeared to close it. Moved into the consume
+          statement: refresh_tokens.created_at >= users.tokens_invalid_before.
+  DEF-023 CRITICAL the simulator was not isolated from real data. is_synthetic
+          was a column nothing wrote, and the agent returned a loan chosen from
+          ALL open loans - so against real records it would close a real
+          student's loan and shelve a book they still held, with every action a
+          valid library operation and nothing raising an error.
+  DEF-021 HIGH     access tokens outlived a password change by up to 15 minutes.
+  DEF-022 HIGH     a Redis outage disabled the login rate limit entirely.
+  DEF-024 MEDIUM   the catalogue URL was an SSRF vector with an unbounded decode.
+  DEF-025 MEDIUM   the simulator would send librarian credentials anywhere.
+
+The lesson recorded against DEF-020 is the one worth carrying: the regression
+test for DEF-015 passed against a fake that ignored the rule, so it agreed with
+the implementation rather than the requirement. A fake that mirrors the code
+under test asserts that the wrong behaviour is correct. It failed for the first
+time when the real rule moved into SQL.
+
+Defects to date: 25 found, 25 closed.
