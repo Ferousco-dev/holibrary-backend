@@ -5,6 +5,12 @@
 -- marks, chosen to exercise every loan policy and both wings of the building.
 
 -- Password for every seeded account is: library2026
+--
+-- must_change_password is false for these two so the demonstration stack is
+-- usable immediately. Real accounts created through POST /members get it set
+-- to true, and the middleware then confines the account to the password-change
+-- route until it complies (I-15). A real deployment must rotate or remove
+-- these two accounts before going live.
 -- Argon2id hash, generated with the same parameters the application uses.
 INSERT INTO users (identifier, email, full_name, first_name, last_name,
                    department, level, password_hash, role, category, status,
@@ -13,11 +19,11 @@ VALUES
   ('LIB/ADMIN/001', 'admin@oauife.edu.ng', 'System Administrator',
    'System', 'Administrator', 'Hezekiah Oluwasanmi Library', NULL,
    '$argon2id$v=19$m=65536,t=1,p=4$YN8HcK2ZWbOpAIKg6v2KPQ$ZwoU2tiylfMlXWswKmUTHHwv7faESSC1Fuh/e99cjiw',
-   'admin', NULL, 'active', true),
+   'admin', NULL, 'active', false),
   ('LIB/STAFF/001', 'librarian@oauife.edu.ng', 'Circulation Librarian',
    'Circulation', 'Librarian', 'Readers Services', NULL,
    '$argon2id$v=19$m=65536,t=1,p=4$YN8HcK2ZWbOpAIKg6v2KPQ$ZwoU2tiylfMlXWswKmUTHHwv7faESSC1Fuh/e99cjiw',
-   'librarian', NULL, 'active', true)
+   'librarian', NULL, 'active', false)
 ON CONFLICT (identifier) DO NOTHING;
 
 -- Books. Class A-J is shelved in the South wing, K-Z in the North wing.

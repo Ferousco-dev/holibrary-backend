@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -50,7 +51,7 @@ func TestImportCSVDryRunWritesNothing(t *testing.T) {
 	store := &fakeMemberStore{}
 	svc := service.NewMemberService(store, &fakeNotifier{})
 
-	result, err := svc.ImportCSV(context.Background(), strings.NewReader(rollCSV), true)
+	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, strings.NewReader(rollCSV), true)
 	if err != nil {
 		t.Fatalf("ImportCSV: %v", err)
 	}
@@ -80,7 +81,7 @@ func TestImportCSVCommitsGoodRowsDespiteBadOnes(t *testing.T) {
 	store := &fakeMemberStore{}
 	svc := service.NewMemberService(store, &fakeNotifier{})
 
-	result, err := svc.ImportCSV(context.Background(), strings.NewReader(rollCSV), false)
+	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, strings.NewReader(rollCSV), false)
 	if err != nil {
 		t.Fatalf("ImportCSV: %v", err)
 	}
@@ -117,7 +118,7 @@ func TestImportCSVReportsAlreadyRegistered(t *testing.T) {
 	store := &fakeMemberStore{conflicts: map[string]bool{"SWE/2025/001": true}}
 	svc := service.NewMemberService(store, &fakeNotifier{})
 
-	result, err := svc.ImportCSV(context.Background(), strings.NewReader(rollCSV), false)
+	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, strings.NewReader(rollCSV), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,8 +135,7 @@ func TestImportCSVReportsAlreadyRegistered(t *testing.T) {
 func TestImportCSVRejectsUnusableHeader(t *testing.T) {
 	svc := service.NewMemberService(&fakeMemberStore{}, &fakeNotifier{})
 
-	_, err := svc.ImportCSV(context.Background(),
-		strings.NewReader("name,phone\nSomeone,08000000000\n"), true)
+	_, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, strings.NewReader("name,phone\nSomeone,08000000000\n"), true)
 	if err == nil {
 		t.Fatal("a header with no student id must be rejected")
 	}
@@ -155,12 +155,12 @@ func TestCreateIssuesUnpredictableTemporaryPassword(t *testing.T) {
 		FirstName: "Ada", LastName: "Obi", Category: domain.CategoryUndergraduate,
 	}
 
-	_, first, err := svc.Create(context.Background(), params)
+	_, first, err := svc.Create(context.Background(), domain.RoleLibrarian, params)
 	if err != nil {
 		t.Fatal(err)
 	}
 	params.Identifier = "SWE/2025/011"
-	_, second, err := svc.Create(context.Background(), params)
+	_, second, err := svc.Create(context.Background(), domain.RoleLibrarian, params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,5 +173,35 @@ func TestCreateIssuesUnpredictableTemporaryPassword(t *testing.T) {
 	}
 	if len(first) < 10 {
 		t.Errorf("temporary password is too short: %d characters", len(first))
+	}
+}
+
+// A librarian who posts {"role":"admin"} must be refused. Without this check the
+// role field on the create-member request is a privilege-escalation vector:
+// any librarian could mint themselves an administrator (DEF-005).
+func TestLibrarianCannotCreateStaffAccounts(t *testing.T) {
+	store := &fakeMemberStore{}
+	svc := service.NewMemberService(store, &fakeNotifier{})
+
+	for _, role := range []domain.Role{domain.RoleAdmin, domain.RoleLibrarian} {
+		_, _, err := svc.Create(context.Background(), domain.RoleLibrarian, service.NewMemberParams{
+			Identifier: "SWE/2025/999", Email: "x@oauife.edu.ng",
+			FirstName: "Priv", LastName: "Escalation",
+			Category: domain.CategoryUndergraduate, Role: role,
+		})
+		if !errors.Is(err, domain.ErrForbidden) {
+			t.Errorf("librarian creating %s: error = %v, want ErrForbidden", role, err)
+		}
+	}
+	if len(store.created) != 0 {
+		t.Error("no account should have been created")
+	}
+
+	// An administrator may.
+	if _, _, err := svc.Create(context.Background(), domain.RoleAdmin, service.NewMemberParams{
+		Identifier: "LIB/STAFF/002", Email: "staff@oauife.edu.ng",
+		FirstName: "New", LastName: "Librarian", Role: domain.RoleLibrarian,
+	}); err != nil {
+		t.Errorf("an administrator may create a librarian: %v", err)
 	}
 }

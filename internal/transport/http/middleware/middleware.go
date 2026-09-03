@@ -67,11 +67,30 @@ func Authenticate(issuer *auth.TokenIssuer) func(http.Handler) http.Handler {
 				return
 			}
 
+			// An account still on its librarian-issued temporary password may do
+			// exactly one thing: replace it. Without this the temporary password
+			// handed over on paper was a fully working credential for as long as
+			// the member ignored the prompt. DEF-007.
+			if claims.Pending && !isPasswordChangeRoute(r) {
+				response.FromError(w, domain.ErrMustChangePassword)
+				return
+			}
+
 			ctx := context.WithValue(r.Context(), ctxKeyUserID, claims.UserID)
 			ctx = context.WithValue(ctx, ctxKeyRole, domain.Role(claims.Role))
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// isPasswordChangeRoute reports whether the request is one an account with a
+// pending password change is still permitted to make.
+func isPasswordChangeRoute(r *http.Request) bool {
+	switch r.URL.Path {
+	case "/api/v1/auth/change-password", "/api/v1/auth/logout":
+		return true
+	}
+	return false
 }
 
 // RequireLibrarian rejects anyone who is not staff.

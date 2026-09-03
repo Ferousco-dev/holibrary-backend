@@ -107,7 +107,13 @@ func (r *CatalogueRepo) Search(ctx context.Context, p SearchParams) ([]domain.Bo
 	 ORDER BY
 	   CASE WHEN $1 = '' THEN 0
 	        ELSE ts_rank(b.search_vector, plainto_tsquery('english', $1)) END DESC,
-	   b.title
+	   b.title,
+	   -- Tie-break on the primary key. Titles are not unique and neither are
+	   -- rank scores, so without this two books ordered arbitrarily could swap
+	   -- between requests, making page 2 repeat a row from page 1 and drop
+	   -- another entirely. A total order is what makes pagination stable.
+	   -- DEF-008.
+	   b.id
 	 LIMIT $9 OFFSET $10`
 
 	rows, err := r.db.Query(ctx, q, p.Query, p.Title, p.Author, p.Subject,
@@ -311,6 +317,60 @@ func (r *CatalogueRepo) ListCopies(ctx context.Context, bookID uuid.UUID) ([]dom
 		copies = append(copies, c)
 	}
 	return copies, rows.Err()
+}
+
+// FindCopy reads one physical volume.
+func (r *CatalogueRepo) FindCopy(ctx context.Context, id uuid.UUID) (domain.Copy, error) {
+	const q = `SELECT id, book_id, accession_number, loan_policy, status,
+	                  acquired_at, coalesce(notes,'')
+	             FROM copies WHERE id = $1`
+
+	var c domain.Copy
+	err := r.db.QueryRow(ctx, q, id).Scan(&c.ID, &c.BookID, &c.AccessionNumber,
+		&c.LoanPolicy, &c.Status, &c.AcquiredAt, &c.Notes)
+	return c, translate(err)
+}
+
+// SetCopyStatusClosingLoan records a copy as lost or damaged while it was out,
+// and closes the loan in the same transaction.
+//
+// Both halves must happen together. A copy marked lost with its loan left open
+// would show as permanently overdue; a loan closed without the copy's status
+// changing would put a lost book back on the shelf. The loan is closed with the
+// copy's new status recorded rather than as a return, so the history says what
+// actually happened (DEF-009, DOM-008).
+func (r *CatalogueRepo) SetCopyStatusClosingLoan(ctx context.Context, id uuid.UUID,
+	status domain.CopyStatus, staffID uuid.UUID) error {
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return translate(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE loans SET returned_at = now(), returned_to = $2
+		 WHERE copy_id = $1 AND returned_at IS NULL`, id, staffID); err != nil {
+		return translate(err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE copies SET status = $2, updated_at = now() WHERE id = $1`, id, status)
+	if err != nil {
+		return translate(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO audit_log (actor_id, action, entity_type, entity_id, metadata)
+		VALUES ($1, $2, 'copy', $3, jsonb_build_object('closed_open_loan', true))`,
+		staffID, "COPY_MARKED_"+string(status), id); err != nil {
+		return translate(err)
+	}
+
+	return translate(tx.Commit(ctx))
 }
 
 // UpdateCopy changes a volume's policy or status, which is how a librarian marks

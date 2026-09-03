@@ -59,6 +59,25 @@ func (p NewMemberParams) displayName() string {
 	return strings.TrimSpace(strings.TrimSpace(p.FirstName) + " " + strings.TrimSpace(p.LastName))
 }
 
+// RolesCreatableBy reports which roles an actor may create.
+//
+// A librarian registers members and nothing else. Without this, the role field
+// on the create-member request was a privilege-escalation vector: any librarian
+// could post {"role":"admin"} and mint themselves an administrator. Staff
+// accounts are created by administrators only. DEF-005.
+func RolesCreatableBy(actor domain.Role) map[domain.Role]bool {
+	switch actor {
+	case domain.RoleAdmin:
+		return map[domain.Role]bool{
+			domain.RoleMember: true, domain.RoleLibrarian: true, domain.RoleAdmin: true,
+		}
+	case domain.RoleLibrarian:
+		return map[domain.Role]bool{domain.RoleMember: true}
+	default:
+		return map[domain.Role]bool{}
+	}
+}
+
 // Create registers a member.
 //
 // There is no self-registration anywhere in this system. Membership begins in
@@ -67,9 +86,19 @@ func (p NewMemberParams) displayName() string {
 //
 // The temporary password is returned to the librarian to hand over, and the
 // account is flagged to force a change at first login (REQ-007).
-func (s *MemberService) Create(ctx context.Context, p NewMemberParams) (domain.User, string, error) {
+func (s *MemberService) Create(ctx context.Context, actor domain.Role, p NewMemberParams) (domain.User, string, error) {
 	if err := validateNewMember(p); err != nil {
 		return domain.User{}, "", err
+	}
+
+	// The role is taken from the request body, so it is checked against what
+	// the caller is actually allowed to create (DEF-005).
+	requested := p.Role
+	if requested == "" {
+		requested = domain.RoleMember
+	}
+	if !RolesCreatableBy(actor)[requested] {
+		return domain.User{}, "", domain.ErrForbidden
 	}
 
 	// A random temporary password, never a predictable one derived from the
@@ -85,10 +114,7 @@ func (s *MemberService) Create(ctx context.Context, p NewMemberParams) (domain.U
 		return domain.User{}, "", err
 	}
 
-	role := p.Role
-	if role == "" {
-		role = domain.RoleMember
-	}
+	role := requested
 
 	var category *domain.MemberCategory
 	if role == domain.RoleMember {
@@ -195,7 +221,7 @@ var csvAliases = map[string][]string{
 //
 // A bad row never aborts the batch. It is counted, named by line number, and
 // skipped (REQ-011).
-func (s *MemberService) ImportCSV(ctx context.Context, r io.Reader, dryRun bool) (ImportResult, error) {
+func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, r io.Reader, dryRun bool) (ImportResult, error) {
 	reader := csv.NewReader(r)
 	reader.TrimLeadingSpace = true
 	reader.FieldsPerRecord = -1 // rows are validated individually below
@@ -283,7 +309,8 @@ func (s *MemberService) ImportCSV(ctx context.Context, r io.Reader, dryRun bool)
 			continue
 		}
 
-		user, temporary, err := s.Create(ctx, params)
+		// Imported rows are always members. A CSV can never introduce staff.
+		user, temporary, err := s.Create(ctx, actor, params)
 		switch {
 		case errors.Is(err, domain.ErrConflict):
 			// Re-importing last session's roll is routine, not a failure.

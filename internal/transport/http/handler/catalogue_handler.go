@@ -6,6 +6,7 @@ import (
 	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
 	"github.com/Ferousco-dev/holibrary-backend/internal/repository/postgres"
 	"github.com/Ferousco-dev/holibrary-backend/internal/service"
+	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/middleware"
 	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/response"
 )
 
@@ -202,7 +203,8 @@ func (h *CatalogueHandler) UpdateCopy(w http.ResponseWriter, r *http.Request) {
 		status = &s
 	}
 
-	if err := h.catalogue.UpdateCopy(r.Context(), id, policy, status); err != nil {
+	staffID, _ := middleware.UserID(r.Context())
+	if err := h.catalogue.UpdateCopy(r.Context(), id, policy, status, staffID); err != nil {
 		response.FromError(w, err)
 		return
 	}

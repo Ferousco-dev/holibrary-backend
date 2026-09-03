@@ -49,6 +49,17 @@ func (r *TokenRepo) RevokeRefreshToken(ctx context.Context, hash string) error {
 	return translate(err)
 }
 
+// RevokeAllRefreshTokens ends every session for a user.
+//
+// Called on password change and on password reset, so a credential that may
+// have been compromised cannot keep a session alive behind the change (DEF-006).
+func (r *TokenRepo) RevokeAllRefreshTokens(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE refresh_tokens SET revoked_at = now()
+		  WHERE user_id = $1 AND revoked_at IS NULL`, userID)
+	return translate(err)
+}
+
 func (r *TokenRepo) SavePasswordReset(ctx context.Context, userID uuid.UUID, hash string, expires time.Time) error {
 	_, err := r.db.Exec(ctx,
 		`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES ($1,$2,$3)`,

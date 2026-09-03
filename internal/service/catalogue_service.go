@@ -19,7 +19,9 @@ type CatalogueStore interface {
 	ArchiveBook(ctx context.Context, id uuid.UUID) error
 	AddCopy(ctx context.Context, bookID uuid.UUID, accession string, policy domain.LoanPolicy) (domain.Copy, error)
 	ListCopies(ctx context.Context, bookID uuid.UUID) ([]domain.Copy, error)
+	FindCopy(ctx context.Context, id uuid.UUID) (domain.Copy, error)
 	UpdateCopy(ctx context.Context, id uuid.UUID, policy *domain.LoanPolicy, status *domain.CopyStatus) error
+	SetCopyStatusClosingLoan(ctx context.Context, id uuid.UUID, status domain.CopyStatus, staffID uuid.UUID) error
 }
 
 type CatalogueService struct{ books CatalogueStore }
@@ -109,6 +111,43 @@ func (s *CatalogueService) AddCopy(ctx context.Context, bookID uuid.UUID, access
 	return s.books.AddCopy(ctx, bookID, accession, policy)
 }
 
-func (s *CatalogueService) UpdateCopy(ctx context.Context, id uuid.UUID, policy *domain.LoanPolicy, status *domain.CopyStatus) error {
+// UpdateCopy changes a volume's loan policy or status, enforcing the copy state
+// machine (DEF-009).
+//
+// The dangerous case this guards is a librarian setting a borrowed copy back to
+// available: the loan would stay open, and the library would believe a book was
+// on the shelf while a student still held it. Marking a borrowed copy lost or
+// damaged is permitted and closes the loan honestly, so nobody has to record a
+// fake return in order to write down a real loss.
+func (s *CatalogueService) UpdateCopy(ctx context.Context, id uuid.UUID,
+	policy *domain.LoanPolicy, status *domain.CopyStatus, staffID uuid.UUID) error {
+
+	current, err := s.books.FindCopy(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if status != nil && *status != current.Status {
+		if !current.Status.CanTransitionTo(*status) {
+			return domain.ErrInvalidTransition
+		}
+		if current.Status == domain.CopyOnLoan && status.ClosesAnOpenLoan() {
+			// Closing the loan and moving the copy must happen together.
+			if err := s.books.SetCopyStatusClosingLoan(ctx, id, *status, staffID); err != nil {
+				return err
+			}
+			status = nil // already applied
+		}
+	}
+
+	// A copy that is out cannot have its lending policy rewritten underneath an
+	// active loan.
+	if policy != nil && current.Status == domain.CopyOnLoan {
+		return domain.ErrCopyOnLoan
+	}
+
+	if policy == nil && status == nil {
+		return nil
+	}
 	return s.books.UpdateCopy(ctx, id, policy, status)
 }

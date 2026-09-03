@@ -1,0 +1,47 @@
+{
+  "project": "group4-online-library-management-system",
+  "course": "SEN 106 / SEN 216 - Introduction to Web Technologies",
+  "institution": "Obafemi Awolowo University, Ile-Ife",
+  "mode": "FLEET",
+  "phase": "04",
+  "gate": "G1",
+  "agent": "constructor",
+  "process_style": "hybrid",
+  "rigour": 3,
+  "stack": {
+    "language": "Go",
+    "container": "Docker",
+    "database": "Neon (PostgreSQL)",
+    "cache_queue": "Upstash (Redis)",
+    "host": "Render",
+    "edge": "Cloudflare (DNS, TLS, CDN, WAF)",
+    "ci": "GitHub Actions",
+    "push": "Firebase Cloud Messaging",
+    "email": "Resend",
+    "api_docs": "OpenAPI 3 / Swagger"
+  },
+  "open": [
+    "RSK-001",
+    "RSK-002",
+    "RSK-003",
+    "RSK-004",
+    "RSK-005"
+  ],
+  "overrides": [],
+  "counters": {
+    "REQ": 74,
+    "NFR": 20,
+    "DOM": 9,
+    "DES": 9,
+    "TC": 0,
+    "DEF": 10,
+    "CR": 0,
+    "DEC": 13,
+    "RSK": 5
+  },
+  "attempts": {
+    "G0": 1,
+    "G1": 1,
+    "G2": 1
+  }
+}

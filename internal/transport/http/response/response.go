@@ -111,6 +111,10 @@ var errorMap = []struct {
 		"That is not a valid Library of Congress call number."},
 	{domain.ErrNotReservable, http.StatusUnprocessableEntity, "NOT_RESERVABLE",
 		"That title cannot be reserved."},
+	{domain.ErrInvalidTransition, http.StatusUnprocessableEntity, "INVALID_STATUS_CHANGE",
+		"That copy cannot move to that status from its current one."},
+	{domain.ErrCopyOnLoan, http.StatusConflict, "COPY_ON_LOAN",
+		"That copy is currently on loan and cannot be changed."},
 }
 
 // FromError maps a domain error to its HTTP response.

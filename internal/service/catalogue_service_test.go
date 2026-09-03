@@ -13,9 +13,11 @@ import (
 )
 
 type fakeCatalogue struct {
-	created  postgres.CreateBookParams
-	searched postgres.SearchParams
-	book     domain.Book
+	created        postgres.CreateBookParams
+	searched       postgres.SearchParams
+	book           domain.Book
+	copy           domain.Copy
+	closedLoanWith domain.CopyStatus
 }
 
 func (f *fakeCatalogue) Search(_ context.Context, p postgres.SearchParams) ([]domain.Book, int, error) {
@@ -37,6 +39,13 @@ func (f *fakeCatalogue) ListCopies(context.Context, uuid.UUID) ([]domain.Copy, e
 	return nil, nil
 }
 func (f *fakeCatalogue) UpdateCopy(context.Context, uuid.UUID, *domain.LoanPolicy, *domain.CopyStatus) error {
+	return nil
+}
+func (f *fakeCatalogue) FindCopy(context.Context, uuid.UUID) (domain.Copy, error) {
+	return f.copy, nil
+}
+func (f *fakeCatalogue) SetCopyStatusClosingLoan(_ context.Context, _ uuid.UUID, s domain.CopyStatus, _ uuid.UUID) error {
+	f.closedLoanWith = s
 	return nil
 }
 
@@ -131,5 +140,62 @@ func TestBookViewDerivesWingAndAvailability(t *testing.T) {
 	}
 	if north.IsAvailable {
 		t.Error("every copy on loan means the title is not available")
+	}
+}
+
+// Marking a borrowed copy lost must close its open loan in the same breath.
+// Otherwise the book shows as forever overdue, or a librarian fakes a return to
+// tidy it up and the permanent record becomes a lie (DEF-009).
+func TestMarkingBorrowedCopyLostClosesTheLoan(t *testing.T) {
+	store := &fakeCatalogue{copy: domain.Copy{Status: domain.CopyOnLoan}}
+	svc := service.NewCatalogueService(store)
+
+	lost := domain.CopyLost
+	if err := svc.UpdateCopy(context.Background(), uuid.New(), nil, &lost, uuid.New()); err != nil {
+		t.Fatalf("marking a borrowed copy lost must be allowed: %v", err)
+	}
+	if store.closedLoanWith != domain.CopyLost {
+		t.Error("the open loan must be closed as part of the same operation")
+	}
+}
+
+// The corruption this guard exists for: a borrowed copy pushed back to
+// available would leave its loan open, and the library would believe the book
+// was on the shelf while a student still held it.
+func TestBorrowedCopyCannotBeShelvedByStatusEdit(t *testing.T) {
+	store := &fakeCatalogue{copy: domain.Copy{Status: domain.CopyOnLoan}}
+	svc := service.NewCatalogueService(store)
+
+	available := domain.CopyAvailable
+	err := svc.UpdateCopy(context.Background(), uuid.New(), nil, &available, uuid.New())
+	if !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Errorf("error = %v, want ErrInvalidTransition", err)
+	}
+	if store.closedLoanWith != "" {
+		t.Error("no loan should have been closed")
+	}
+}
+
+// A withdrawn volume does not come back. A replacement is a new copy with its
+// own accession number.
+func TestWithdrawnCopyIsTerminal(t *testing.T) {
+	store := &fakeCatalogue{copy: domain.Copy{Status: domain.CopyWithdrawn}}
+	svc := service.NewCatalogueService(store)
+
+	available := domain.CopyAvailable
+	if err := svc.UpdateCopy(context.Background(), uuid.New(), nil, &available, uuid.New()); !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Errorf("error = %v, want ErrInvalidTransition", err)
+	}
+}
+
+// The lending policy of a copy that is out cannot be rewritten underneath the
+// borrower.
+func TestPolicyCannotChangeWhileOnLoan(t *testing.T) {
+	store := &fakeCatalogue{copy: domain.Copy{Status: domain.CopyOnLoan}}
+	svc := service.NewCatalogueService(store)
+
+	reference := domain.PolicyReferenceOnly
+	if err := svc.UpdateCopy(context.Background(), uuid.New(), &reference, nil, uuid.New()); !errors.Is(err, domain.ErrCopyOnLoan) {
+		t.Errorf("error = %v, want ErrCopyOnLoan", err)
 	}
 }

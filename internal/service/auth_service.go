@@ -32,6 +32,7 @@ type TokenStore interface {
 	SaveRefreshToken(ctx context.Context, userID uuid.UUID, hash string, expires time.Time) error
 	ConsumeRefreshToken(ctx context.Context, hash string) (uuid.UUID, error)
 	RevokeRefreshToken(ctx context.Context, hash string) error
+	RevokeAllRefreshTokens(ctx context.Context, userID uuid.UUID) error
 	SavePasswordReset(ctx context.Context, userID uuid.UUID, hash string, expires time.Time) error
 	ConsumePasswordReset(ctx context.Context, hash string) (uuid.UUID, error)
 }
@@ -54,6 +55,13 @@ func NewAuthService(u UserStore, t TokenStore, n Notifier, i *auth.TokenIssuer) 
 }
 
 // Session is what a successful login hands back.
+//
+// MustChangePassword is not merely advisory. A member holding a temporary
+// password issued at the desk is confined to changing it: the access token
+// carries the flag and the middleware refuses every other route until the
+// change is made. Otherwise a temporary password handed over on paper would be
+// a fully working credential for as long as the member ignored the prompt.
+// DEF-007.
 type Session struct {
 	AccessToken        string      `json:"access_token"`
 	RefreshToken       string      `json:"refresh_token"`
@@ -93,7 +101,7 @@ func (s *AuthService) Login(ctx context.Context, login, password string) (Sessio
 }
 
 func (s *AuthService) issueSession(ctx context.Context, user domain.User) (Session, error) {
-	access, err := s.issuer.IssueAccessToken(user.ID, string(user.Role))
+	access, err := s.issuer.IssueAccessToken(user.ID, string(user.Role), user.MustChangePassword)
 	if err != nil {
 		return Session{}, err
 	}
@@ -164,7 +172,15 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, curr
 	if err != nil {
 		return err
 	}
-	return s.users.UpdatePassword(ctx, userID, newHash)
+	if err := s.users.UpdatePassword(ctx, userID, newHash); err != nil {
+		return err
+	}
+
+	// Changing a password is how someone reacts to a suspected compromise, so
+	// it must end every other session. Previously the old refresh token kept
+	// working and the change achieved nothing against an attacker who already
+	// held one. DEF-006.
+	return s.tokens.RevokeAllRefreshTokens(ctx, userID)
 }
 
 // PasswordResetTTL is deliberately short: the token arrives by email, and an
@@ -213,5 +229,11 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, next string) err
 	if err != nil {
 		return err
 	}
-	return s.users.UpdatePassword(ctx, userID, hash)
+	if err := s.users.UpdatePassword(ctx, userID, hash); err != nil {
+		return err
+	}
+
+	// A reset is the stronger case: the person resetting may be locked out
+	// precisely because someone else holds a session. Revoke them all. DEF-006.
+	return s.tokens.RevokeAllRefreshTokens(ctx, userID)
 }

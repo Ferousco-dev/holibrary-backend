@@ -84,7 +84,7 @@ func TestAccessTokenRoundTrip(t *testing.T) {
 	issuer := auth.NewTokenIssuer(strings.Repeat("k", 32), 15*time.Minute, time.Hour)
 	id := uuid.New()
 
-	token, err := issuer.IssueAccessToken(id, "librarian")
+	token, err := issuer.IssueAccessToken(id, "librarian", false)
 	if err != nil {
 		t.Fatalf("IssueAccessToken: %v", err)
 	}
@@ -101,13 +101,43 @@ func TestAccessTokenRoundTrip(t *testing.T) {
 	}
 }
 
+// The pending flag rides in the token so the middleware can confine an account
+// that still holds a librarian-issued temporary password (DEF-007).
+func TestAccessTokenCarriesPendingPasswordChange(t *testing.T) {
+	issuer := auth.NewTokenIssuer(strings.Repeat("k", 32), time.Minute, time.Hour)
+
+	pending, err := issuer.IssueAccessToken(uuid.New(), "member", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := issuer.ParseAccessToken(pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claims.Pending {
+		t.Error("a token issued for an account with a temporary password must be marked pending")
+	}
+
+	settled, err := issuer.IssueAccessToken(uuid.New(), "member", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err = issuer.ParseAccessToken(settled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claims.Pending {
+		t.Error("a settled account's token must not be marked pending")
+	}
+}
+
 // A token signed with a different secret must be rejected, or anyone could mint
 // an admin session.
 func TestAccessTokenRejectsForeignSignature(t *testing.T) {
 	real := auth.NewTokenIssuer(strings.Repeat("k", 32), time.Minute, time.Hour)
 	forger := auth.NewTokenIssuer(strings.Repeat("x", 32), time.Minute, time.Hour)
 
-	forged, err := forger.IssueAccessToken(uuid.New(), "admin")
+	forged, err := forger.IssueAccessToken(uuid.New(), "admin", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +149,7 @@ func TestAccessTokenRejectsForeignSignature(t *testing.T) {
 func TestAccessTokenRejectsExpired(t *testing.T) {
 	issuer := auth.NewTokenIssuer(strings.Repeat("k", 32), -time.Minute, time.Hour)
 
-	expired, err := issuer.IssueAccessToken(uuid.New(), "member")
+	expired, err := issuer.IssueAccessToken(uuid.New(), "member", false)
 	if err != nil {
 		t.Fatal(err)
 	}

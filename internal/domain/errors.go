@@ -39,3 +39,9 @@ var (
 	ErrNotReservable   = errors.New("that title cannot be reserved")
 	ErrCopiesAvailable = errors.New("copies are available; reservation is unnecessary")
 )
+
+// Copy lifecycle.
+var (
+	ErrInvalidTransition = errors.New("that is not a valid change of status for this copy")
+	ErrCopyOnLoan        = errors.New("that copy is currently on loan")
+)

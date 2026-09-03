@@ -115,7 +115,7 @@ func (r *UserRepo) List(ctx context.Context, search string, limit, offset int) (
 	            WHERE ($1 = '' OR full_name ILIKE '%' || $1 || '%'
 	                          OR identifier ILIKE '%' || $1 || '%'
 	                          OR email ILIKE '%' || $1 || '%')
-	            ORDER BY created_at DESC
+	            ORDER BY created_at DESC, id
 	            LIMIT $2 OFFSET $3`
 
 	rows, err := r.db.Query(ctx, q, search, limit, offset)

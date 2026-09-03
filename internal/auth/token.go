@@ -21,6 +21,10 @@ import (
 type Claims struct {
 	UserID uuid.UUID `json:"uid"`
 	Role   string    `json:"role"`
+	// Pending is true while the account still holds a librarian-issued
+	// temporary password. The middleware confines such a token to the
+	// password-change route (DEF-007).
+	Pending bool `json:"pending,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -39,13 +43,14 @@ func (t *TokenIssuer) RefreshTTL() time.Duration { return t.refreshTTL }
 func (t *TokenIssuer) AccessTTL() time.Duration  { return t.accessTTL }
 
 // IssueAccessToken returns a signed JWT for the given user.
-func (t *TokenIssuer) IssueAccessToken(userID uuid.UUID, role string) (string, error) {
+func (t *TokenIssuer) IssueAccessToken(userID uuid.UUID, role string, pendingPasswordChange bool) (string, error) {
 	// UTC, because this instant is encoded into a token that will be verified
 	// on another machine in another timezone.
 	now := time.Now().UTC()
 	claims := Claims{
-		UserID: userID,
-		Role:   role,
+		UserID:  userID,
+		Role:    role,
+		Pending: pendingPasswordChange,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),

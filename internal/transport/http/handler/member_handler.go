@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
 	"github.com/Ferousco-dev/holibrary-backend/internal/service"
+	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/middleware"
 	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/response"
 )
 
@@ -20,6 +22,20 @@ type MemberHandler struct {
 
 func NewMemberHandler(m *service.MemberService, c *service.CirculationService) *MemberHandler {
 	return &MemberHandler{members: m, circulation: c}
+}
+
+// isKnownDomainError reports whether err is one the response package can map to
+// a specific status and code.
+func isKnownDomainError(err error) bool {
+	for _, known := range []error{
+		domain.ErrForbidden, domain.ErrConflict, domain.ErrNotFound,
+		domain.ErrUnauthenticated, domain.ErrPasswordTooWeak, domain.ErrNoCategory,
+	} {
+		if errors.Is(err, known) {
+			return true
+		}
+	}
+	return false
 }
 
 type createMemberRequest struct {
@@ -40,7 +56,7 @@ func (h *MemberHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, temporary, err := h.members.Create(r.Context(), service.NewMemberParams{
+	user, temporary, err := h.members.Create(r.Context(), middleware.Role(r.Context()), service.NewMemberParams{
 		Identifier: req.Identifier,
 		Email:      req.Email,
 		FullName:   req.FullName,
@@ -48,17 +64,17 @@ func (h *MemberHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Role:       domain.Role(req.Role),
 	})
 	if err != nil {
-		if err == domain.ErrConflict {
+		// Known domain errors carry their own status: a librarian attempting to
+		// create an admin is 403 FORBIDDEN, not a malformed request. Sniffing
+		// the error's type to decide was wrong and reported a privilege
+		// violation as a validation failure. DEF-010.
+		if isKnownDomainError(err) {
 			response.FromError(w, err)
 			return
 		}
-		// Validation messages from the service are safe to show: they describe
-		// the form, not the system.
-		if _, isDomain := err.(interface{ Is(error) bool }); !isDomain {
-			response.ValidationError(w, err.Error(), nil)
-			return
-		}
-		response.FromError(w, err)
+		// What remains is a field-level complaint from validateNewMember. Those
+		// messages describe the form, not the system, so they are safe to show.
+		response.ValidationError(w, err.Error(), nil)
 		return
 	}
 
@@ -89,7 +105,7 @@ func (h *MemberHandler) ImportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	result, err := h.members.ImportCSV(r.Context(), file, boolParam(r, "dry_run"))
+	result, err := h.members.ImportCSV(r.Context(), middleware.Role(r.Context()), file, boolParam(r, "dry_run"))
 	if err != nil {
 		response.ValidationError(w, err.Error(), nil)
 		return

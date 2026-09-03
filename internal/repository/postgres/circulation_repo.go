@@ -213,7 +213,7 @@ func scanLoans(rows pgx.Rows) ([]domain.Loan, error) {
 func (r *CirculationRepo) LoansForUser(ctx context.Context, userID uuid.UUID, openOnly bool) ([]domain.Loan, error) {
 	q := loanSelect + `
 	 WHERE l.user_id = $1 AND (NOT $2 OR l.returned_at IS NULL)
-	 ORDER BY l.borrowed_at DESC`
+	 ORDER BY l.borrowed_at DESC, l.id`
 
 	rows, err := r.db.Query(ctx, q, userID, openOnly)
 	if err != nil {
@@ -232,7 +232,9 @@ func (r *CirculationRepo) ListLoans(ctx context.Context, overdueOnly, openOnly b
 	q := loanFields + `, count(*) OVER() AS total` + loanFrom + `
 	 WHERE (NOT $1 OR (l.returned_at IS NULL AND l.due_at < now()))
 	   AND (NOT $2 OR l.returned_at IS NULL)
-	 ORDER BY l.due_at
+	 -- l.id breaks ties so paging through loans cannot repeat or skip a row
+	 -- when several share a due date (DEF-008).
+	 ORDER BY l.due_at, l.id
 	 LIMIT $3 OFFSET $4`
 
 	rows, err := r.db.Query(ctx, q, overdueOnly, openOnly, limit, offset)

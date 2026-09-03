@@ -280,3 +280,58 @@ func InDisplayTimezone(t time.Time) time.Time {
 	}
 	return t.In(loc)
 }
+
+// copyTransitions is the state machine for a physical volume.
+//
+// A copy's status is not a free-text field a librarian may set to anything. Some
+// transitions are physically meaningless and some are dangerous: moving a copy
+// from on_loan straight to available would silently abandon an open loan,
+// leaving the library believing a book is on the shelf while a student still
+// holds it. Others are simply impossible, like lending a withdrawn volume.
+//
+// Only the transitions listed here are permitted. DEF-009.
+var copyTransitions = map[CopyStatus][]CopyStatus{
+	// Borrowing is not done through this map: it goes through the circulation
+	// service, which claims the copy atomically and writes a loan in the same
+	// transaction (REQ-047).
+	CopyAvailable: {CopyDamaged, CopyLost, CopyWithdrawn},
+
+	// A borrowed copy leaves this state by being returned, or by being reported
+	// lost or damaged while out. Returning is the circulation service's job;
+	// lost and damaged close the loan too, so a librarian never has to fake a
+	// return in order to record a real loss.
+	CopyOnLoan: {CopyLost, CopyDamaged},
+
+	// A copy found again, or repaired, may return to the shelf.
+	CopyLost:    {CopyAvailable, CopyWithdrawn},
+	CopyDamaged: {CopyAvailable, CopyWithdrawn},
+
+	// Withdrawn is terminal. A volume removed from the collection does not
+	// come back; a replacement is a new copy with its own accession number.
+	CopyWithdrawn: {},
+}
+
+// CanTransitionTo reports whether a copy may move from its current status to
+// the given one. A transition to the same status is a no-op and allowed.
+func (c CopyStatus) CanTransitionTo(next CopyStatus) bool {
+	if c == next {
+		return true
+	}
+	for _, allowed := range copyTransitions[c] {
+		if allowed == next {
+			return true
+		}
+	}
+	return false
+}
+
+// ClosesAnOpenLoan reports whether moving a copy into this status must also
+// close the loan that copy is currently out on.
+//
+// A copy reported lost or damaged while borrowed still has an open loan against
+// it. Leaving that loan open would show the book as forever overdue; closing it
+// as a "return" would be a lie in the permanent record. It is closed and marked
+// for what it was.
+func (c CopyStatus) ClosesAnOpenLoan() bool {
+	return c == CopyLost || c == CopyDamaged
+}

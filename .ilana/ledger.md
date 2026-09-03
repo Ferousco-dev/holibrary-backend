@@ -1,0 +1,157 @@
+# Ìlànà Ledger — Group 4 Online Library Management System
+
+Append-only. Newest at the bottom. Entries are never edited, only superseded.
+
+---
+
+## 2026-09-03 | G0 | conductor | GATE PASS
+Cold start. Mode FLEET, rigour 3, process style hybrid.
+Evidence:
+  - Project brief received and analysed.
+  - Document analysis performed on LIB 001 course material (402 pp) and
+    SEN_106_merged.pdf (313 pp).
+  - Key domain finding: HOL assigns a unique **accession number per physical copy**
+    while all copies share a **call number**. This is the Book/Copy distinction,
+    evidenced by the library's own documentation rather than assumed.
+  - Further findings: LCC (not Dewey); South wing A-J, North wing K-Z;
+    reference and on-display items do not circulate; borrower privileges vary
+    by category; registration is in person.
+  - SEN 106 material currently ends at CSS Flexbox. JavaScript, Git, hosting and
+    security chapters are not yet written. Logged as RSK-003.
+Decisions: DEC-001..DEC-013 recorded.
+Risks: RSK-001..RSK-005 recorded.
+Decision: advance to phase 01.
+
+## 2026-09-03 | 01 | analyst | ARTIFACT EMITTED
+Produced docs/srs.md (IEEE 830 shape) and .ilana/traceability.csv.
+103 requirements: 74 functional, 20 non-functional, 9 domain.
+All 9 domain requirements cite the LIB 001 material.
+
+## 2026-09-03 | G1 | analyst | GATE PASS (caveat)
+Evidence:
+  - 103 rows in .ilana/traceability.csv, 0 duplicate identifiers.
+  - Unmeasurable-adjective grep audit over docs/srs.md: 0 hits.
+  - 8 of 20 NFRs carry numeric thresholds; the remaining 12 are
+    binary-verifiable predicates.
+Caveat: criterion 5 partial. No librarian or lecturer has reviewed the SRS.
+Loan periods and limits (DEC-005) are stated assumptions, not confirmed facts.
+Decision: advance to phase 02 Architecture.
+
+## 2026-09-03 | 02 | architect | ARTIFACT EMITTED
+Produced docs/design.md. DES-001..DES-009.
+Repository: holibrary-backend, module github.com/Ferousco-dev/holibrary-backend.
+Key decisions:
+  - Layered monolith. Microservices rejected: the hard problem is transactional
+    integrity on one shared resource, which is easier in one process.
+  - No stored availability counter and no is_overdue column. Both derived,
+    per REQ-039 and REQ-053, so neither can go stale.
+  - Last-copy race (REQ-047, NFR-009) defended three ways: atomic compare-and-swap
+    UPDATE, a partial unique index on loans(copy_id) WHERE returned_at IS NULL,
+    and a FOR UPDATE limit check, all in one transaction.
+  - Transactional outbox for notifications, which is the stated reason Redis is
+    in the stack at all (mitigates RSK-003).
+
+## 2026-09-03 | G2 | architect | GATE PASS
+Evidence: docs/design.md §8 maps DES-001..009 across REQ, NFR and DOM sets.
+All 9 domain requirements have a schema-level mechanism.
+Phase 03 (interface design) deferred by scope: backend-first, frontend is a
+separate repository and a later pass. Recorded, not skipped.
+Decision: advance to phase 04 Construction.
+
+## 2026-09-03 | 04 | constructor | CONSTRUCTION
+Repository created at ~/Desktop/SCHOOL/holibrary-backend.
+Module github.com/Ferousco-dev/holibrary-backend. Go 1.27.
+
+Implemented: domain, auth (Argon2id + JWT + opaque tokens), config,
+repository/postgres (users, catalogue, circulation, tokens, outbox, audit),
+service (auth, catalogue, circulation, members), transport/http (router,
+middleware, handlers, response envelopes), cmd/api, 4 migrations, Dockerfile,
+docker-compose, GitHub Actions CI, Makefile, README, seed data.
+
+Adopted mid-phase, on stakeholder input:
+  - student profile fields (first/last name, faculty, department, level),
+    migration 0003
+  - CSV import dry-run preview with per-row validation summary and column
+    aliases (student_id / matric_no / identifier)
+
+Defects found and closed during construction: DEF-001, DEF-002, DEF-003.
+
+## 2026-09-03 | 05 | verifier | EVIDENCE FROM A RUNNING SYSTEM
+Stack brought up with docker compose (Postgres 17, Redis 7, API) and exercised.
+
+  - go build, go vet, gofmt: clean
+  - unit tests: pass, with -race
+  - Docker image: 15 MB (NFR-011 budget was 50 MB)
+  - health endpoint: 200, database reachable
+  - catalogue search: 4 titles, wing derived correctly
+    (DT -> South, Q and P -> North) (DOM-003)
+  - reference-only dictionary reports not_for_loan and is_available=false
+    (DOM-004)
+  - loan period exactly 14 days for an undergraduate (DEC-005, REQ-042)
+  - borrowing limit of 2 enforced; third loan rejected LOAN_LIMIT_REACHED
+    (REQ-043)
+  - reference copy rejected COPY_NOT_BORROWABLE (DOM-004, REQ-044)
+  - double return rejected LOAN_ALREADY_CLOSED (REQ-051)
+  - history survives return (DOM-008, REQ-061)
+  - RBAC: student receives 403 on POST /books, POST /loans, GET /members,
+    GET /admin/audit, GET /loans; 401 without a token; catalogue public
+    (NFR-004, REQ-037)
+  - CSV import: dry run reported 20 valid and wrote nothing; commit created 20
+
+CONCURRENCY, REQ-047 and NFR-009, measured rather than asserted:
+  20 simultaneous POST /loans for ONE copy.
+  Result: 1 x HTTP 201, 19 x HTTP 409 COPY_NOT_AVAILABLE.
+  Loans recorded against that copy: exactly 1. Copy status: on_loan.
+
+## 2026-09-03 | 02 | architect | DESIGN AMENDED — DES-010
+Time, date and timezone policy added to docs/design.md §4A on stakeholder input.
+Eleven rules: UTC canonical, Africa/Lagos for display by name, TIMESTAMPTZ for
+every event time, RFC 3339 on the wire, server-authoritative timestamps,
+backend-decided overdue, DATE only for date-only values, timezone tests required.
+
+Audit against the existing code:
+  - 21 of 21 timestamp columns were already TIMESTAMPTZ. No change needed.
+  - DEF-004 found and closed: the audit log appended a literal "Z" to a
+    session-local time via to_char, mislabelling every entry as UTC.
+  - time.Now() replaced with time.Now().UTC() at every site whose value is
+    stored or compared. Rate-limiter and access-log sites deliberately left
+    alone: they measure elapsed duration, not wall-clock instants.
+  - time.Local pinned to UTC at startup.
+  - tzdata embedded (DEC-016): the scratch image has no /usr/share/zoneinfo,
+    so Africa/Lagos would have failed in production and nowhere else.
+  - migration 0005: last_login_at, password_changed_at, account_disabled_at,
+    outbox scheduled_at and read_at.
+  - 5 timezone and boundary tests added, including the exclusive overdue
+    boundary and a timezone-independence check across UTC, Africa/Lagos and
+    the host zone.
+Defects to date: DEF-001..DEF-004, all closed.
+
+## 2026-09-03 | 04 | constructor | INVARIANT AUDIT
+Audited the codebase against a 50-item bug-class list supplied by the
+stakeholder. Wrote docs/SYSTEM_INVARIANTS.md: 18 invariants, each naming the
+layer that enforces it, on the principle that no invariant may rest on Go
+validation alone.
+
+Already held, verified rather than assumed: parameterised queries throughout;
+uniform error envelope with no driver detail leaked; API versioning; unknown
+JSON fields rejected; page size clamped; ON DELETE RESTRICT protecting loan
+history; no cached availability, so the stale-cache class cannot occur;
+health check actually pings the database; graceful shutdown; fail-fast config;
+CORS allowlist with no wildcard.
+
+Six defects found and closed:
+  DEF-005 CRITICAL privilege escalation - any librarian could create an admin
+          by posting {"role":"admin"}. Mass assignment.
+  DEF-006 HIGH     refresh tokens survived a password change or reset.
+  DEF-007 HIGH     must_change_password was recorded but never enforced, so a
+          temporary password was a fully working credential.
+  DEF-008 MEDIUM   non-deterministic ORDER BY made pagination repeat and drop
+          rows across pages.
+  DEF-009 HIGH     no copy state machine. A borrowed copy could be edited back
+          to available, abandoning its open loan.
+  DEF-010 LOW      a privilege violation was reported as a validation failure.
+
+All six verified fixed against the running stack. Defects to date: 10, all
+closed. The three highest-severity defects in this project so far were all
+found by inspection against a checklist, not by tests - which is the argument
+for reviews preceding test execution (constitution article 5).

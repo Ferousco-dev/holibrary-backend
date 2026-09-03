@@ -53,7 +53,7 @@ func (r *AuditRepo) List(ctx context.Context, limit, offset int) ([]AuditEntry, 
 		       a.created_at,
 		       count(*) OVER() AS total
 		  FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id
-		 ORDER BY a.created_at DESC
+		 ORDER BY a.created_at DESC, a.id
 		 LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, 0, translate(err)
