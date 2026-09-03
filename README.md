@@ -239,7 +239,22 @@ sensitive throughout.
 
 ## API
 
-Base path `/api/v1`. Full specification in `docs/openapi.yaml`.
+Base path `/api/v1`. **The API documents itself:**
+
+| | |
+|---|---|
+| `GET /docs` | Interactive Swagger UI |
+| `GET /openapi.yaml` | The OpenAPI 3 specification, for code generators |
+
+The spec is **embedded in the binary**, so the documentation ships with the
+artefact and cannot go missing on a container with no source tree. There is one
+copy of the file: `docs/openapi.yaml` is a symlink to the embedded one, so the
+two cannot drift.
+
+Two tests hold the contract honest: every route in the router must appear in the
+spec, and every path in the spec must have a route serving it. Documentation that
+has quietly drifted is worse than none, because the frontend builds against it
+and finds out at integration time.
 
 | Access | Routes |
 |---|---|

@@ -155,3 +155,21 @@ All six verified fixed against the running stack. Defects to date: 10, all
 closed. The three highest-severity defects in this project so far were all
 found by inspection against a checklist, not by tests - which is the argument
 for reviews preceding test execution (constitution article 5).
+
+## 2026-09-03 | 04 | constructor | REQ-073 SWAGGER / OPENAPI
+docs/openapi.yaml: OpenAPI 3.0.3, 21 paths, 24 operations, 14 schemas,
+11 reusable responses. Served from the running service:
+  GET /docs          interactive Swagger UI
+  GET /openapi.yaml  the specification itself
+The spec is embedded with go:embed so it ships inside the binary. There is one
+copy of the file; docs/openapi.yaml is a symlink to the embedded one, so the
+two cannot drift.
+
+Two contract tests added against bug class 44 (documentation drift):
+  - every route in the router must appear in the spec (24/24 verified)
+  - every path in the spec must have a route serving it
+Both fail the build if the contract and the implementation disagree, so the
+frontend team cannot build against a stale document.
+
+Traceability updated: 46 requirements now marked implemented with the file
+that satisfies them.

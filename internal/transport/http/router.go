@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
+	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/docs"
 	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/handler"
 	"github.com/Ferousco-dev/holibrary-backend/internal/transport/http/middleware"
 )
@@ -44,6 +45,12 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	// ---- public: no token required ----------------------------------------
 
 	mux.Handle("GET /healthz", handler.Health(h.Ping))
+
+	// The API documents itself. The frontend is a separate repository and builds
+	// against this contract, so it is served from the running service rather
+	// than kept in a file someone has to remember to share (REQ-073).
+	mux.Handle("GET /docs", docs.UI())
+	mux.Handle("GET /openapi.yaml", docs.Spec())
 
 	// The catalogue is public information. A visitor may search it without an
 	// account, exactly as they may walk in and browse the shelves (REQ-037).

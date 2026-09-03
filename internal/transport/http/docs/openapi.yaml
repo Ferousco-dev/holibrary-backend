@@ -1,0 +1,1106 @@
+openapi: 3.0.3
+
+info:
+  title: HOLibrary API
+  version: "1.0.0"
+  description: |
+    Online library management system for **Hezekiah Oluwasanmi Library**,
+    Obafemi Awolowo University, Ile-Ife.
+
+    Group 4 · SEN 106 / SEN 216 — Introduction to Web Technologies
+
+    ## What this API is
+
+    A modernised Online Public Access Catalogue with an integrated circulation
+    module, for a **physical** library. It answers *does HOL have this book, is a
+    copy free, where is it* and records *who holds which copy, from when, until
+    when*. No book content is stored or served.
+
+    ## Two ideas that shape every endpoint
+
+    **A book is not a copy.** A `book` is bibliographic — one title, one call
+    number, shared by all its volumes. A `copy` is one physical object with its
+    own **accession number**, unique across the whole collection. Five copies of
+    *Clean Code* are one book and five copies.
+
+    **Availability and overdue are derived, never stored.** There is no
+    `available_copies` field in the database and no `is_overdue` column. Both are
+    computed on read, so neither can drift out of step with reality.
+
+    ## Membership begins in the building
+
+    There is **no registration endpoint**, by design. At HOL a user presents an
+    identity card and signs a register; a librarian then creates the account and
+    hands over a temporary password. That temporary password is **not a working
+    credential** — the account can call `/auth/change-password` and `/auth/logout`
+    and nothing else until the password is changed.
+
+    ## Time
+
+    Every timestamp is **RFC 3339 in UTC**. The server generates all event times;
+    a client-supplied timestamp is never trusted. Convert to `Africa/Lagos` for
+    display only.
+
+    ## Response shape
+
+    Success and failure each have exactly one shape. `error.code` is stable and
+    machine-readable; `error.message` is written for a person and safe to display.
+  contact:
+    name: Group 4
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+  - url: https://holibrary-backend.onrender.com/api/v1
+    description: Deployment
+
+tags:
+  - name: Authentication
+    description: Sign in, sessions, password management.
+  - name: Catalogue
+    description: Books and their bibliographic records. Search is public.
+  - name: Inventory
+    description: Physical copies. Librarian only.
+  - name: Circulation
+    description: Borrowing and returns, recorded by staff at the desk.
+  - name: My account
+    description: A member's own record. Identity comes from the token.
+  - name: Members
+    description: The member roll. Librarian only.
+  - name: Administration
+    description: Dashboard and audit trail.
+  - name: System
+    description: Health.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Sign in
+      description: |
+        Accepts a matriculation number, a staff number, or an email address in
+        the `login` field — members are told to use whichever they remember.
+
+        Rate limited to 5 attempts per minute per client IP.
+
+        If `must_change_password` is true the returned access token is
+        **restricted**: every route except `/auth/change-password` and
+        `/auth/logout` returns `MUST_CHANGE_PASSWORD` until the password is
+        changed.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [login, password]
+              properties:
+                login:
+                  type: string
+                  example: SWE/2025/001
+                password:
+                  type: string
+                  format: password
+      responses:
+        "200":
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Session'
+        "400": { $ref: '#/components/responses/ValidationFailed' }
+        "401":
+          description: |
+            Incorrect credentials. The response is identical whether the account
+            does not exist or the password is wrong, so this endpoint cannot be
+            used to discover which matriculation numbers are registered.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "403": { $ref: '#/components/responses/MemberNotActive' }
+        "429": { $ref: '#/components/responses/RateLimited' }
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Exchange a refresh token for a new session
+      description: |
+        The presented refresh token is **consumed** as part of the exchange and a
+        new one is issued. Rotating on every use means a stolen token is good for
+        at most one call.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        "200":
+          description: New session issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Session' }
+        "401": { $ref: '#/components/responses/TokenInvalid' }
+        "429": { $ref: '#/components/responses/RateLimited' }
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Sign out
+      description: |
+        Revokes the refresh token. The access token is left to expire on its own
+        (15 minutes) — the trade-off that comes with stateless access tokens, and
+        the reason they are short-lived.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+
+  /auth/change-password:
+    post:
+      tags: [Authentication]
+      summary: Change your own password
+      description: |
+        Requires the current password, so a borrowed unlocked laptop is not
+        enough to take over an account.
+
+        **Every other session for this account is revoked.** Changing a password
+        is how someone reacts to a suspected compromise; if old refresh tokens
+        kept working it would achieve nothing.
+
+        This is the one route available to an account still holding a
+        librarian-issued temporary password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string, format: password }
+                new_password:
+                  type: string
+                  format: password
+                  description: At least 10 characters, with a letter and a number.
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "422": { $ref: '#/components/responses/PasswordTooWeak' }
+
+  /auth/forgot-password:
+    post:
+      tags: [Authentication]
+      summary: Request a password reset link
+      description: |
+        **Always returns 202**, whether or not the address belongs to a member.
+        Reporting "no such account" would let anyone test addresses against the
+        member roll — a real privacy leak, given that a borrowing history is a
+        record of what a named student reads.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "202": { $ref: '#/components/responses/StatusOK' }
+        "429": { $ref: '#/components/responses/RateLimited' }
+
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Complete a password reset
+      description: |
+        The token is single-use and expires after 30 minutes. Only its hash is
+        stored, so a leaked database yields no usable reset link. Completing a
+        reset revokes every existing session for the account.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token: { type: string }
+                new_password: { type: string, format: password }
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "401": { $ref: '#/components/responses/TokenInvalid' }
+        "422": { $ref: '#/components/responses/PasswordTooWeak' }
+
+  /books:
+    get:
+      tags: [Catalogue]
+      summary: Search the catalogue
+      description: |
+        **Public.** The catalogue is public information, exactly as the shelves
+        are; nothing personal is reachable here.
+
+        The `title`, `author` and `subject` parameters are the three access
+        points the card catalogue has always provided, and the ones HOL's own
+        OPAC searches. `q` is a weighted full-text search across all three —
+        a title match outranks an author match, which outranks a subject match.
+
+        Every result carries its derived **wing** and **availability**, so a
+        reader knows both whether to come in and which way to walk.
+      security: []
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Free-text across title, author and subject., example: clean code }
+        - { name: title, in: query, schema: { type: string } }
+        - { name: author, in: query, schema: { type: string } }
+        - { name: subject, in: query, schema: { type: string } }
+        - { name: isbn, in: query, schema: { type: string }, description: Hyphens are ignored., example: "978-0-13-235088-4" }
+        - { name: call_number, in: query, schema: { type: string }, description: Matches from the start of the LCC class mark., example: "QA76" }
+        - { name: class, in: query, schema: { type: string, maxLength: 1 }, description: "Single LCC class letter. A-J is the South wing, K-Z the North." }
+        - { name: available, in: query, schema: { type: boolean }, description: Only titles with a circulating copy on the shelf. }
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+      responses:
+        "200":
+          description: Matching titles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Book' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+    post:
+      tags: [Catalogue]
+      summary: Add a bibliographic record
+      description: |
+        Librarian only. The call number must be a **Library of Congress** class
+        mark — HOL classifies with LCC, not Dewey, so a bare Dewey number such as
+        `005.133` is rejected as a data-entry mistake.
+
+        This creates the *title*, not any physical volume. Add copies separately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewBook' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Book' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "422": { $ref: '#/components/responses/InvalidCallNumber' }
+
+  /books/{id}:
+    get:
+      tags: [Catalogue]
+      summary: One title, with its physical copies
+      security: []
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        "200":
+          description: The title and every volume of it the library holds
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      book: { $ref: '#/components/schemas/Book' }
+                      copies:
+                        type: array
+                        items: { $ref: '#/components/schemas/Copy' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /books/{id}/archive:
+    post:
+      tags: [Catalogue]
+      summary: Archive a title
+      description: |
+        Removes the title from search **without deleting it**. Its loan history
+        must survive: the library still has to be able to say who held a copy
+        last session.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /books/{id}/copies:
+    post:
+      tags: [Inventory]
+      summary: Register a physical volume
+      description: |
+        The **accession number** is the library's own per-item identifier,
+        assigned when the volume arrives, and is unique across the entire
+        collection — not per title. The call number it inherits from the book is
+        shared by every copy.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accession_number]
+              properties:
+                accession_number: { type: string, example: HOL-748211 }
+                loan_policy:
+                  $ref: '#/components/schemas/LoanPolicy'
+      responses:
+        "201":
+          description: Copy registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Copy' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409":
+          description: That accession number already belongs to another volume.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /copies/{id}:
+    patch:
+      tags: [Inventory]
+      summary: Change a copy's status or loan policy
+      description: |
+        Status changes follow a **state machine**. Only these moves are legal:
+
+        ```
+        available ──▶ lost / damaged / withdrawn
+        on_loan   ──▶ lost / damaged        (closes the open loan)
+        lost      ──▶ available / withdrawn (found)
+        damaged   ──▶ available / withdrawn (repaired)
+        withdrawn ──▶ (terminal)
+        ```
+
+        A borrowed copy **cannot** be set back to `available` here: that would
+        abandon its open loan and show a book on the shelf that a student still
+        holds. Lending is not a status edit — it goes through `POST /loans`.
+
+        Marking a borrowed copy `lost` or `damaged` **closes its loan and writes
+        an audit entry in the same transaction**, so a librarian never has to
+        record a fake return in order to write down a real loss.
+
+        The loan policy of a copy that is currently out cannot be changed.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { $ref: '#/components/schemas/CopyStatus' }
+                loan_policy: { $ref: '#/components/schemas/LoanPolicy' }
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409":
+          description: The copy is on loan and cannot be changed (`COPY_ON_LOAN`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "422":
+          description: Illegal state transition (`INVALID_STATUS_CHANGE`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /loans:
+    get:
+      tags: [Circulation]
+      summary: List loans
+      description: Librarian only. `overdue=true` implies open loans — a returned book is never overdue.
+      parameters:
+        - { name: overdue, in: query, schema: { type: boolean } }
+        - { name: open, in: query, schema: { type: boolean } }
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+      responses:
+        "200":
+          description: Loans
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Loan' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Circulation]
+      summary: Record a borrowing
+      description: |
+        **Librarian only.** The member is named in the body; the librarian comes
+        from the token. A member can no more issue a book to themselves here than
+        they could at the Loans desk.
+
+        The due date is computed from the member's category — the client does not
+        choose it:
+
+        | Category | Limit | Period |
+        |---|---|---|
+        | undergraduate | 2 | 14 days |
+        | postgraduate | 4 | 21 days |
+        | staff | 6 | 28 days |
+
+        **Concurrency.** Two librarians can issue the last copy at the same
+        instant. The copy is claimed with a single atomic statement whose
+        condition carries the availability check, so there is no window between
+        checking and taking. The loser receives `409 COPY_NOT_AVAILABLE`. A
+        partial unique index on open loans makes a double loan unstorable even if
+        the application were wrong.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [copy_id, member_id]
+              properties:
+                copy_id: { type: string, format: uuid }
+                member_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Loan recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Loan' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409":
+          description: |
+            `COPY_NOT_AVAILABLE` — already on loan, or another request won the race.
+            `COPY_NOT_BORROWABLE` — a reference, display or restricted volume.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "422":
+          description: |
+            `LOAN_LIMIT_REACHED` — the member's category limit is reached.
+            `MEMBER_NOT_ACTIVE` — suspended or inactive.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /loans/{id}/return:
+    post:
+      tags: [Circulation]
+      summary: Record a return
+      description: |
+        Closes the loan and restores the copy to the shelf. The loan is **not**
+        deleted — the library must still be able to say who held this copy.
+        Returning twice is impossible: the update requires the loan to still be
+        open.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        "200":
+          description: Returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Loan' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409":
+          description: That loan has already been returned (`LOAN_ALREADY_CLOSED`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /me/loans:
+    get:
+      tags: [My account]
+      summary: Books you currently hold
+      description: |
+        The member is taken from the **token**, never from the URL. There is no
+        id to tamper with, so one member cannot read another's record.
+      responses:
+        "200":
+          description: Open loans, with due dates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Loan' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "403": { $ref: '#/components/responses/MustChangePassword' }
+
+  /me/history:
+    get:
+      tags: [My account]
+      summary: Everything you have ever borrowed
+      description: History survives return. A returned loan is a closed record, not a deleted one.
+      responses:
+        "200":
+          description: Full borrowing history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Loan' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+
+  /members:
+    get:
+      tags: [Members]
+      summary: Search the member roll
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Matches name, identifier or email. }
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+      responses:
+        "200":
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/User' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Members]
+      summary: Register a member
+      description: |
+        Performed at the desk after the applicant presents their identity card.
+
+        A **temporary password is returned once**, for the librarian to hand
+        over. It is not stored in readable form and cannot be retrieved again,
+        and the account is confined to changing it at first sign-in.
+
+        **Role.** A librarian may create members only. Creating a `librarian` or
+        `admin` account requires an administrator — the role is checked against
+        the caller's own role from the token, never trusted from the body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewMember' }
+      responses:
+        "201":
+          description: Member registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      member: { $ref: '#/components/schemas/User' }
+                      temporary_password: { type: string }
+                      note: { type: string }
+        "403":
+          description: Not permitted to create an account of that role (`FORBIDDEN`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "409":
+          description: That matriculation number or email is already registered.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /members/import:
+    post:
+      tags: [Members]
+      summary: Bulk-register members from a CSV
+      description: |
+        Upload a spreadsheet export as multipart form field `file` (max 8 MB).
+
+        **Preview first.** With `dry_run=true` the file is parsed and validated
+        and the same summary is returned, but **nothing is written**. Fix the
+        rows the summary names, then post again to commit.
+
+        Expected header, in any order — common aliases are accepted
+        (`student_id`, `matric_no`, `identifier`):
+
+        ```csv
+        student_id,first_name,last_name,email,department,level
+        SWE/2025/001,Feranmi,Oresajo,feranmi@oauife.edu.ng,Software Engineering,200
+        ```
+
+        A bad row never aborts the batch. Every row is reported by line number as
+        `valid`, `created`, `duplicate` or `invalid`. Duplicates are detected both
+        **within the file** and against the database, so re-importing last
+        session's roll is routine rather than an error.
+
+        Imported rows are always members; a CSV can never introduce staff.
+      parameters:
+        - { name: dry_run, in: query, schema: { type: boolean }, description: Validate and report without writing. }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ImportResult' }
+        "400":
+          description: The header could not be understood, or the upload was too large.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /members/{id}:
+    get:
+      tags: [Members]
+      summary: A member and their full borrowing record
+      description: Librarian only. A member reads their own record through `/me/history`.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        "200":
+          description: Member and history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      member: { $ref: '#/components/schemas/User' }
+                      history:
+                        type: array
+                        items: { $ref: '#/components/schemas/Loan' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /members/{id}/status:
+    patch:
+      tags: [Members]
+      summary: Suspend or reactivate a member
+      description: A suspended member cannot sign in and cannot borrow.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, suspended, inactive] }
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /admin/dashboard:
+    get:
+      tags: [Administration]
+      summary: Library at a glance
+      responses:
+        "200":
+          description: Counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      books: { type: integer, example: 1240 }
+                      copies: { type: integer, example: 3187 }
+                      members: { type: integer, example: 812 }
+                      active_loans: { type: integer, example: 194 }
+                      overdue: { type: integer, example: 23 }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /admin/audit:
+    get:
+      tags: [Administration]
+      summary: Trail of staff actions
+      description: |
+        **Administrator only.** The log records which librarian lent what to which
+        named student, so it is more sensitive than the data it describes.
+      parameters:
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+      responses:
+        "200":
+          description: Audit entries, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuditEntry' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        `Authorization: Bearer <access_token>` from `/auth/login`.
+
+        Access tokens last 15 minutes. Refresh tokens last 7 days, are stored
+        hashed, and are rotated on every use.
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    perPage:
+      name: per_page
+      in: query
+      description: Clamped to 100, so one request cannot ask for the whole collection.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    StatusOK:
+      description: Done
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: object
+                properties:
+                  status: { type: string }
+    Unauthenticated:
+      description: No valid access token (`UNAUTHENTICATED`, `TOKEN_INVALID`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Signed in, but not permitted (`FORBIDDEN`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    MustChangePassword:
+      description: |
+        The account still holds a librarian-issued temporary password and is
+        confined to `/auth/change-password` until it is replaced
+        (`MUST_CHANGE_PASSWORD`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    MemberNotActive:
+      description: The membership is suspended or inactive (`MEMBER_NOT_ACTIVE`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TokenInvalid:
+      description: The token is invalid, spent or expired (`TOKEN_INVALID`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No such record (`NOT_FOUND`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationFailed:
+      description: |
+        The body could not be read or a field was unacceptable
+        (`VALIDATION_FAILED`). Unknown JSON fields are **rejected**, not ignored,
+        so a misspelled field is reported rather than silently dropped.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PasswordTooWeak:
+      description: At least 10 characters, with a letter and a number (`PASSWORD_TOO_WEAK`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidCallNumber:
+      description: Not a valid LCC class mark (`INVALID_CALL_NUMBER`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: More than 5 attempts in a minute from this IP (`RATE_LIMITED`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Stable and machine-readable. Switch on this.
+              example: COPY_NOT_AVAILABLE
+            message:
+              type: string
+              description: Written for a person. Safe to display; reveals nothing internal.
+              example: That copy is already on loan.
+            details: { type: object, nullable: true }
+
+    Meta:
+      type: object
+      properties:
+        page: { type: integer, example: 1 }
+        per_page: { type: integer, example: 20 }
+        total: { type: integer, example: 143 }
+
+    Session:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer, description: Access token lifetime in seconds., example: 900 }
+        must_change_password:
+          type: boolean
+          description: |
+            When true the access token is restricted to `/auth/change-password`
+            and `/auth/logout`.
+        user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        identifier: { type: string, example: SWE/2025/001 }
+        email: { type: string, format: email }
+        full_name: { type: string, example: Feranmi Oresajo }
+        role: { type: string, enum: [member, librarian, admin] }
+        category:
+          type: string
+          nullable: true
+          enum: [undergraduate, postgraduate, staff]
+          description: Null for staff accounts. Determines borrowing entitlement.
+        status: { type: string, enum: [active, suspended, inactive] }
+        must_change_password: { type: boolean }
+
+    NewMember:
+      type: object
+      required: [identifier, email, category]
+      properties:
+        identifier: { type: string, example: SWE/2025/001 }
+        email: { type: string, format: email }
+        full_name: { type: string, description: Or supply first and last name separately. }
+        category: { type: string, enum: [undergraduate, postgraduate, staff] }
+        role:
+          type: string
+          enum: [member, librarian, admin]
+          default: member
+          description: Anything other than `member` requires an administrator.
+
+    Book:
+      type: object
+      properties:
+        ID: { type: string, format: uuid }
+        Title: { type: string, example: Clean Code }
+        Subtitle: { type: string }
+        ISBN13: { type: string }
+        Publisher: { type: string }
+        PublishedYear: { type: integer, nullable: true }
+        CallNumber:
+          type: string
+          description: LCC class mark. **Shared by every copy of this title.**
+          example: QA76.76 .M37
+        LCCClass: { type: string, maxLength: 1, example: Q }
+        Authors: { type: array, items: { type: string } }
+        Subjects: { type: array, items: { type: string } }
+        Availability: { $ref: '#/components/schemas/Availability' }
+        wing:
+          type: string
+          enum: [South, North, Unknown]
+          description: |
+            **Derived** from the class mark, never stored. HOL shelves classes
+            A-J in the South wing and K-Z in the North.
+        is_available: { type: boolean, description: Derived — true when a circulating copy is on the shelf. }
+
+    NewBook:
+      type: object
+      required: [title, call_number]
+      properties:
+        title: { type: string }
+        subtitle: { type: string }
+        isbn13: { type: string, description: Hyphens are stripped. }
+        isbn10: { type: string }
+        publisher: { type: string }
+        place_of_publication: { type: string }
+        published_year: { type: integer }
+        call_number: { type: string, example: QA76.76 .M37 }
+        description: { type: string }
+        authors: { type: array, items: { type: string } }
+        subjects: { type: array, items: { type: string } }
+
+    Availability:
+      type: object
+      description: |
+        **Counted from copy states on every read.** There is no
+        `available_copies` column: a stored counter is a second source of truth
+        and drifts, and `available = -1` is unrepresentable rather than merely
+        guarded against.
+      properties:
+        total_copies: { type: integer, example: 5 }
+        available: { type: integer, example: 3 }
+        on_loan: { type: integer, example: 2 }
+        not_for_loan: { type: integer, description: Reference, display and restricted volumes., example: 0 }
+
+    Copy:
+      type: object
+      description: One physical volume on a shelf.
+      properties:
+        ID: { type: string, format: uuid }
+        BookID: { type: string, format: uuid }
+        AccessionNumber:
+          type: string
+          description: |
+            The library's own per-item identifier, **unique across the whole
+            collection**. Three copies of a title carry three accession numbers
+            and one shared call number.
+          example: HOL-748211
+        LoanPolicy: { $ref: '#/components/schemas/LoanPolicy' }
+        Status: { $ref: '#/components/schemas/CopyStatus' }
+
+    LoanPolicy:
+      type: string
+      enum: [circulating, reference_only, on_display, restricted]
+      description: |
+        Why a volume may or may not leave the building.
+
+        * `circulating` — the main lending collection.
+        * `reference_only` — Reference Room; consulted in place.
+        * `on_display` — Recent Accessions; not borrowable, but reservable.
+        * `restricted` — Africana, OAU Publications, Serials, Conservation.
+
+    CopyStatus:
+      type: string
+      enum: [available, on_loan, lost, damaged, withdrawn]
+      description: Transitions are constrained. See `PATCH /copies/{id}`.
+
+    Loan:
+      type: object
+      description: |
+        One custody event. Returning a book **closes** this record; it never
+        deletes it.
+      properties:
+        id: { type: string, format: uuid }
+        copy_id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        member_name: { type: string }
+        book_title: { type: string }
+        accession_number: { type: string }
+        borrowed_at: { type: string, format: date-time, example: "2026-09-03T18:15:00Z" }
+        due_at: { type: string, format: date-time, example: "2026-09-17T18:15:00Z" }
+        returned_at: { type: string, format: date-time, nullable: true }
+        status: { type: string, enum: [borrowed, returned, overdue] }
+        is_overdue:
+          type: boolean
+          description: |
+            **Computed from the clock on every read**, never stored. An
+            `is_overdue` column would be correct only until the clock moved past
+            the next due date.
+        days_overdue: { type: integer }
+
+    ImportResult:
+      type: object
+      properties:
+        dry_run: { type: boolean }
+        total_rows: { type: integer, example: 800 }
+        valid: { type: integer, example: 775 }
+        created: { type: integer, description: Always 0 on a dry run. }
+        duplicate: { type: integer, example: 15 }
+        invalid: { type: integer, example: 10 }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              line: { type: integer, description: Line number in the uploaded file. }
+              identifier: { type: string }
+              status: { type: string, enum: [valid, created, duplicate, invalid] }
+              detail: { type: string }
+              temporary_password: { type: string, description: Present only for rows actually created. }
+
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        actor_id: { type: string, format: uuid, nullable: true }
+        actor_name: { type: string }
+        action: { type: string, example: COPY_MARKED_lost }
+        entity_type: { type: string, example: copy }
+        entity_id: { type: string, format: uuid, nullable: true }
+        metadata: { type: object }
+        created_at: { type: string, format: date-time }
