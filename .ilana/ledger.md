@@ -504,3 +504,25 @@ parts and the templates were escaping them first, so a member whose name
 contained a bracket would have read "&lt;" in their inbox. Names come from a
 librarian's CSV upload and are not trustworthy input. Escaped exactly once now,
 with the contract written where the function is defined.
+
+## 2026-09-03 | 07 | quality-auditor | LEDGER AUDIT
+Prompted by the stakeholder asking whether any of this was being recorded. It
+was not, and auditing the answer found more than the missing entries.
+
+Three defects were referenced in code or in prose but had never reached the
+defect table:
+
+  DEF-011  cited in a code comment in circulation_service.go and nowhere else
+  DEF-026  had an analysis note in defects.md but no row in the table above it
+  DEF-027  an insertion that silently failed because its anchor did not exist
+
+The last is the same class of error as DEF-026 itself: a textual edit that
+matched nothing, reported nothing, and left the document looking finished. Two
+of the three were caused by writing to a document with string replacement and
+not checking the result.
+
+The defect table is now contiguous from DEF-001 to DEF-027 with no gaps, and a
+check comparing identifiers referenced anywhere in the repository against those
+recorded in the table found none outstanding. That check is worth repeating
+whenever the ledger is touched; an identifier cited in code but absent from the
+log is a defect nobody can look up.
