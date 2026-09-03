@@ -213,6 +213,49 @@ migrations/              numbered, forward-only SQL
 No component is here without a problem it solves. That is deliberate: every
 choice has to be defensible out loud.
 
+## Notifications
+
+Nothing is sent on the request path. A service writes an outbox row **in the same
+transaction** as the change that caused it, and a worker delivers it later:
+
+```
+service --(same tx)--> outbox row --> worker --> Resend (email) / FCM (push)
+```
+
+The transaction is the point: a due-date reminder can never be queued for a loan
+that rolled back.
+
+**The worker re-checks the world before sending.** A reminder queued last night
+describes a situation that may have changed:
+
+```
+"your book is due tomorrow"   queued
+member returns the book        five minutes later
+worker runs                    -> superseded, not sent
+```
+
+The queue records an *intention*; only the database knows whether the intention
+still holds.
+
+Other things the worker gets right:
+
+- `FOR UPDATE SKIP LOCKED` on the claim, so two workers — or a restart
+  overlapping the previous process — never send the same message twice.
+- `scheduled_at` gates the claim, so a reminder written today for next week waits.
+- A push **fans out to every device** a member has registered. One stored token
+  would reach whichever device happened to register last.
+- A device token FCM reports as permanently dead is **retired**, not retried
+  forever — and one dead device does not stop a working one from being told.
+- A permanent failure (malformed address) is closed immediately; a transient one
+  is retried up to five times.
+- A channel with **no provider configured leaves its messages queued** rather
+  than marking them sent, so nothing is lost while an account is being set up.
+
+Outside production, with no mail provider configured, notifications are written
+to the log instead. The outbox, the re-check, the retry accounting and the worker
+all behave exactly as they will in production; only the final hop changes. The
+message body is never logged — a password reset body carries a working token.
+
 ## Observability
 
 One structured JSON line per request:

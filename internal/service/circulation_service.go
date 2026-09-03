@@ -95,7 +95,9 @@ func (s *CirculationService) Borrow(ctx context.Context, copyID, memberID, libra
 
 	// Queued, not sent: the desk should not wait on an email provider.
 	_ = s.notifier.Queue(ctx, memberID, "email", "loan_receipt", map[string]any{
-		"due_at": loan.DueAt,
+		"loan_id": loan.ID.String(),
+		"title":   loan.BookTitle,
+		"due_at":  loan.DueAt.UTC().Format(time.RFC3339),
 	})
 	return loan, nil
 }
@@ -180,14 +182,18 @@ func (s *CirculationService) NotifyDueSoon(ctx context.Context, window time.Dura
 		switch {
 		case l.IsOverdueAt(now):
 			err = s.notifier.Queue(ctx, l.UserID, "email", "loan_overdue", map[string]any{
+				// loan_id lets the worker re-check that the book is still out
+				// before chasing a member who returned it (DEF-011).
+				"loan_id":      l.ID.String(),
 				"title":        l.BookTitle,
-				"due_at":       l.DueAt,
+				"due_at":       l.DueAt.UTC().Format(time.RFC3339),
 				"days_overdue": l.DaysOverdueAt(now),
 			})
 		case l.DueAt.Sub(now) <= window:
 			err = s.notifier.Queue(ctx, l.UserID, "email", "loan_due_soon", map[string]any{
-				"title":  l.BookTitle,
-				"due_at": l.DueAt,
+				"loan_id": l.ID.String(),
+				"title":   l.BookTitle,
+				"due_at":  l.DueAt.UTC().Format(time.RFC3339),
 			})
 		default:
 			continue

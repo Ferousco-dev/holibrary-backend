@@ -18,6 +18,7 @@ type Handlers struct {
 	Circulation  *handler.CirculationHandler
 	Members      *handler.MemberHandler
 	Reservations *handler.ReservationHandler
+	Devices      *handler.DeviceHandler
 	Admin        *handler.AdminHandler
 	Ping         func() error
 }
@@ -83,6 +84,11 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	mux.Handle("GET /api/v1/me/reservations", authenticate(http.HandlerFunc(h.Reservations.List)))
 	mux.Handle("POST /api/v1/reservations", authenticate(http.HandlerFunc(h.Reservations.Create)))
 	mux.Handle("DELETE /api/v1/reservations/{id}", authenticate(http.HandlerFunc(h.Reservations.Cancel)))
+
+	// Push registrations belong to the signed-in account. Registering a device
+	// against somebody else would send them a stranger's due dates (REQ-071).
+	mux.Handle("POST /api/v1/me/devices", authenticate(http.HandlerFunc(h.Devices.Register)))
+	mux.Handle("DELETE /api/v1/me/devices", authenticate(http.HandlerFunc(h.Devices.Unregister)))
 
 	// ---- librarian: manages the collection and the desk ---------------------
 

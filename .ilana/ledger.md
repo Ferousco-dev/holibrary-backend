@@ -237,3 +237,30 @@ neither looks borrowable nor blocks a queue.
 Verified: 2-copy title lends one then refuses LAST_COPY_RETAINED; 1-copy title
 lends normally; ?available=true drops the retained title; a member may queue for
 a title whose only free copy is retained.
+
+## 2026-09-03 | 04 | constructor | REQ-069..072 NOTIFICATION DELIVERY
+Transactional outbox drained by a background worker. Resend for email, FCM for
+push, and a console sender used outside production so the whole pipeline can be
+run and demonstrated without a mail account.
+
+The worker re-checks state before sending, which is the point of the design: a
+reminder queued last night describes a situation that may have changed. Verified
+live - a due-soon reminder for a book returned before the worker ran was recorded
+as 'superseded' and never sent.
+
+Also: FOR UPDATE SKIP LOCKED on the claim so a restart cannot double-send;
+scheduled_at gating so a future-dated reminder waits; push fan-out across every
+registered device; permanent FCM rejections retiring the device token rather than
+retrying forever; permanent failures closed immediately and transient ones
+retried five times; an unconfigured channel leaving messages queued rather than
+marking them sent.
+
+Migration 0006 adds device_tokens. The token is unique table-wide, not per user,
+so a shared library terminal moves to whoever signs in rather than leaving the
+previous member receiving somebody else's due dates. Verified.
+
+Hourly schedule added: due-soon and overdue reminders, and releasing holds
+nobody collected. Both recompute from the clock every pass.
+
+8 worker tests. Contract tests caught the two undocumented device routes before
+they were committed, which is what they are for.

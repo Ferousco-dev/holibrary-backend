@@ -117,12 +117,22 @@ func (r *CirculationRepo) Borrow(ctx context.Context, p BorrowParams) (domain.Lo
 	// now(). The due date was computed against the application's clock, and
 	// letting the two differ made a 14-day loan report as 13 days. One clock,
 	// one pair of timestamps. DEF-003.
+	// The title and accession number come back with the row so the receipt can
+	// name the book. Fetching them here costs nothing -- the transaction is
+	// already open -- and saves a second round trip from the service.
 	err = tx.QueryRow(ctx, `
-		INSERT INTO loans (copy_id, user_id, borrowed_at, due_at, issued_by)
-		VALUES ($1,$2,$3,$4,$5)
-		RETURNING id, copy_id, user_id, borrowed_at, due_at, returned_at, issued_by`,
+		WITH inserted AS (
+		    INSERT INTO loans (copy_id, user_id, borrowed_at, due_at, issued_by)
+		    VALUES ($1,$2,$3,$4,$5)
+		    RETURNING id, copy_id, user_id, borrowed_at, due_at, returned_at, issued_by
+		)
+		SELECT i.*, b.title, c.accession_number
+		  FROM inserted i
+		  JOIN copies c ON c.id = i.copy_id
+		  JOIN books  b ON b.id = c.book_id`,
 		p.CopyID, p.UserID, p.BorrowedAt, p.DueAt, p.IssuedBy).Scan(
-		&l.ID, &l.CopyID, &l.UserID, &l.BorrowedAt, &l.DueAt, &l.ReturnedAt, &l.IssuedBy)
+		&l.ID, &l.CopyID, &l.UserID, &l.BorrowedAt, &l.DueAt, &l.ReturnedAt,
+		&l.IssuedBy, &l.BookTitle, &l.AccessionNumber)
 	if err != nil {
 		if isUniqueViolation(err, "one_active_loan_per_copy") {
 			// Reaching here means the compare-and-swap was bypassed somehow. The

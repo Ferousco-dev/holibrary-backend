@@ -623,6 +623,55 @@ paths:
                     items: { $ref: '#/components/schemas/Reservation' }
         "401": { $ref: '#/components/responses/Unauthenticated' }
 
+  /me/devices:
+    post:
+      tags: [My account]
+      summary: Register this device for push notifications
+      description: |
+        The owner is taken from the token. Registering a device against another
+        account would send that person a stranger's due dates.
+
+        The registration token is unique across the whole system, not per user:
+        when one student signs out of a shared library terminal and another signs
+        in, the device moves to the new owner rather than leaving the previous
+        member receiving notifications about someone else's books.
+
+        A push fans out to **every** device a member has registered — phone,
+        laptop and library terminal — because a due-date reminder should not
+        depend on which one they happen to be holding.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, description: FCM registration token. }
+                platform: { type: string, enum: [web, android, ios], default: web }
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+    delete:
+      tags: [My account]
+      summary: Detach a device on sign-out
+      description: |
+        Call this when signing out. Otherwise a student who leaves a shared
+        library terminal keeps receiving notifications about their books on a
+        machine somebody else is now using.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+
   /reservations:
     post:
       tags: [My account]

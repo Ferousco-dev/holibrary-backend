@@ -24,6 +24,8 @@ import (
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
 	"github.com/Ferousco-dev/holibrary-backend/internal/config"
+	"github.com/Ferousco-dev/holibrary-backend/internal/notify"
+	"github.com/Ferousco-dev/holibrary-backend/internal/queue"
 	"github.com/Ferousco-dev/holibrary-backend/internal/repository/postgres"
 	"github.com/Ferousco-dev/holibrary-backend/internal/service"
 	transport "github.com/Ferousco-dev/holibrary-backend/internal/transport/http"
@@ -34,6 +36,46 @@ func main() {
 	if err := run(); err != nil {
 		slog.Error("startup failed", "error", err)
 		os.Exit(1)
+	}
+}
+
+// runSchedule performs the periodic library chores.
+//
+// Hourly is frequent enough for reminders measured in days, and infrequent
+// enough that a free-tier database is not woken constantly. The first pass runs
+// immediately so a restart does not skip a day.
+func runSchedule(ctx context.Context, circulation *service.CirculationService,
+	reservations *service.ReservationService) {
+
+	const every = time.Hour
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+
+	work := func() {
+		// Reminders three days out. Overdue notices are raised by the same
+		// pass, because overdue is computed from the clock rather than stored.
+		if n, err := circulation.NotifyDueSoon(ctx, 3*24*time.Hour); err != nil {
+			slog.Error("could not queue due-date reminders", "error", err)
+		} else if n > 0 {
+			slog.Info("due-date reminders queued", "count", n)
+		}
+
+		// A member who never collects must not block the queue behind them.
+		if n, err := reservations.ExpireStale(ctx); err != nil {
+			slog.Error("could not release stale reservations", "error", err)
+		} else if n > 0 {
+			slog.Info("stale reservations released", "count", n)
+		}
+	}
+
+	work()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			work()
+		}
 	}
 }
 
@@ -95,12 +137,41 @@ func run() error {
 		Circulation:  handler.NewCirculationHandler(circulationService),
 		Members:      handler.NewMemberHandler(memberService, circulationService),
 		Reservations: handler.NewReservationHandler(reservationService),
+		Devices:      handler.NewDeviceHandler(outbox),
 		Admin:        handler.NewAdminHandler(circulationService, audit),
 		Ping:         func() error { return db.Ping(ctx) },
 	}, transport.Options{
 		Issuer:      issuer,
 		CORSOrigins: cfg.CORSOrigins,
 	})
+
+	// Notification delivery runs beside the server, never on a request. A
+	// channel with no provider configured is simply absent, and its messages
+	// stay queued until one appears, so nothing is lost during setup.
+	var senders []notify.Sender
+	switch resend := notify.NewResend(cfg.ResendAPIKey, cfg.MailFrom); {
+	case resend.Configured():
+		senders = append(senders, resend)
+	case !cfg.IsProduction():
+		// Development and demonstration: the whole pipeline runs and only the
+		// final hop changes, so the outbox, the state re-check and the retry
+		// accounting can all be observed without a mail account.
+		slog.Warn("no mail provider configured; notifications will be logged, not sent")
+		senders = append(senders, notify.NewConsole("email"), notify.NewConsole("push"))
+	default:
+		// In production, silence beats pretending. The messages stay queued and
+		// are delivered once a provider is configured; marking them sent would
+		// lose them (RSK-002).
+		slog.Error("no mail provider configured in production; notifications will stay queued",
+			"remedy", "set RESEND_API_KEY and verify a sending domain")
+	}
+	worker := queue.NewWorker(outbox, 30*time.Second, senders...)
+	go worker.Run(ctx)
+
+	// Scheduled work: due-soon and overdue reminders, and releasing holds that
+	// nobody collected. Both recompute from the clock every pass rather than
+	// trusting anything stored, so neither can act on a stale value.
+	go runSchedule(ctx, circulationService, reservationService)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.Port,

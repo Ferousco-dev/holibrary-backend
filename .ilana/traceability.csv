@@ -76,10 +76,10 @@ REQ-065,"A librarian shall view a dashboard: total books, total copies, active l
 REQ-066,A librarian shall view most-borrowed titles over a period.,functional,DES-008,,,specified
 REQ-067,An administrator shall create and manage librarian accounts.,functional,DES-008,,,specified
 REQ-068,"The system shall record an audit log of staff actions on catalogue, members and loans.",functional,DES-008,,,specified
-REQ-069,The system shall notify a member by email before a loan falls due.,functional,DES-008,,,specified
-REQ-070,The system shall notify a member when a loan becomes overdue.,functional,DES-008,,,specified
-REQ-071,The system shall support push notification via Firebase Cloud Messaging.,functional,DES-008,,,specified
-REQ-072,"Notifications shall be queued and delivered asynchronously, never blocking an API response.",functional,DES-008,,,specified
+REQ-069,The system shall notify a member by email before a loan falls due.,functional,DES-008,internal/queue/worker.go,,implemented
+REQ-070,The system shall notify a member when a loan becomes overdue.,functional,DES-008,internal/queue/worker.go,,implemented
+REQ-071,The system shall support push notification via Firebase Cloud Messaging.,functional,DES-008,internal/notify/fcm.go,,implemented
+REQ-072,"Notifications shall be queued and delivered asynchronously, never blocking an API response.",functional,DES-008,internal/queue/worker.go,,implemented
 REQ-073,The system shall publish an OpenAPI 3 specification and serve interactive Swagger documentation.,functional,DES-007,docs/openapi.yaml; internal/transport/http/docs,,implemented
 REQ-074,The system shall expose a health endpoint reporting service and database reachability.,functional,DES-007,internal/transport/http/handler/admin_handler.go,,implemented
 NFR-001,"Search response time: 95th percentile under 500 ms for a 10,000-book catalogue at 50 concurrent users",non-functional,DES-009,,,specified

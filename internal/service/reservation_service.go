@@ -79,14 +79,17 @@ func (s *ReservationService) OnCopyReturned(ctx context.Context, copyID uuid.UUI
 
 	// Push and email both: a reservation expires, so a missed notification
 	// costs the member their place.
-	_ = s.notifier.Queue(ctx, res.UserID, "push", "reservation_ready", map[string]any{
-		"book_id":    res.BookID,
-		"expires_at": res.ExpiresAt,
-	})
-	_ = s.notifier.Queue(ctx, res.UserID, "email", "reservation_ready", map[string]any{
-		"book_id":    res.BookID,
-		"expires_at": res.ExpiresAt,
-	})
+	payload := map[string]any{
+		// reservation_id lets the worker check the hold is still live before
+		// telling a member to come and collect a book that has moved on.
+		"reservation_id": res.ID.String(),
+		"book_id":        res.BookID.String(),
+	}
+	if res.ExpiresAt != nil {
+		payload["expires_at"] = res.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	_ = s.notifier.Queue(ctx, res.UserID, "push", "reservation_ready", payload)
+	_ = s.notifier.Queue(ctx, res.UserID, "email", "reservation_ready", payload)
 	return true, nil
 }
 
