@@ -11,7 +11,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-export DATABASE_URL="${DATABASE_URL:-$(cat ~/Desktop/SCHOOL/holibrary-neon-url.txt)}"
+export DATABASE_URL="${DATABASE_URL:-$(cat ~/Desktop/SCHOOL/secrets/holibrary-neon-url.txt)}"
 
 cat > /tmp/reset_admin_main.go <<'GO'
 package main

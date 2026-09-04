@@ -90,5 +90,5 @@ OLD_TOKEN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 45 "$API/api/v1/me/
 echo "  the old session is now: HTTP $OLD_TOKEN_STATUS (401 expected: a password change ends every session)"
 echo
 echo "  Now delete the temporary password file:"
-echo "    rm ~/Desktop/SCHOOL/holibrary-admin-password.txt"
+echo "    rm ~/Desktop/SCHOOL/secrets/holibrary-admin-password.txt"
 echo
