@@ -228,3 +228,45 @@ func TestMessagesForAnUnconfiguredChannelStayQueued(t *testing.T) {
 		t.Error("an undeliverable channel should leave the message pending, not resolve it")
 	}
 }
+
+// The worker must never hand an undeliverable address to a mail provider.
+//
+// This is the regression test for the incident where every synthetic member
+// the simulator created triggered a real send to @simulated.invalid. The
+// assertion is deliberately on the SENDER, not on the outbox: marking a row
+// superseded while still calling the provider would be exactly the bug, and a
+// test that only checked the row would have passed through it.
+func TestWorkerSuppressesUndeliverableRecipients(t *testing.T) {
+	deliverable := uuid.New()
+	synthetic := uuid.New()
+
+	outbox := &fakeOutbox{
+		relevant: true,
+		pending: []postgres.PendingMessage{
+			{ID: deliverable, Channel: "email", Template: "book_borrowed",
+				Email: "ada.okafor@oauife.edu.ng", FullName: "Ada Okafor"},
+			{ID: synthetic, Channel: "email", Template: "book_borrowed",
+				Email: "sim.2026.7647@simulated.invalid", FullName: "Simulated Member"},
+		},
+	}
+	sender := &fakeSender{channel: "email"}
+
+	run(t, queue.NewWorker(outbox, 20*time.Millisecond, sender))
+
+	// The real address went out exactly once, and the synthetic one never did.
+	if len(sender.sentTo) != 1 || sender.sentTo[0] != "ada.okafor@oauife.edu.ng" {
+		t.Fatalf("sender received %v, want only the deliverable address", sender.sentTo)
+	}
+
+	// The suppressed message reached a terminal state, so it is not retried
+	// on the next pass.
+	if len(outbox.superseded) != 1 {
+		t.Fatalf("superseded %d messages, want 1: %v", len(outbox.superseded), outbox.superseded)
+	}
+
+	// Suppression is not failure. A failure would be retried, and there is
+	// nothing here to retry.
+	if len(outbox.failed) != 0 {
+		t.Errorf("marked %d messages failed, want 0: %v", len(outbox.failed), outbox.failed)
+	}
+}

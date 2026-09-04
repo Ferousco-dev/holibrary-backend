@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -132,6 +133,22 @@ func (w *Worker) deliver(ctx context.Context, m postgres.PendingMessage) {
 		return
 	}
 
+	// Refuse to spend a send on an address that can never accept mail.
+	//
+	// Every synthetic member the simulator creates has an @simulated.invalid
+	// address. Handing those to the mail provider produced hundreds of
+	// permanently delayed deliveries against a sending domain that also
+	// carries real mail, which is how a domain's reputation is lost.
+	//
+	// Superseded rather than failed: nothing went wrong, and a failure would
+	// be retried. This message was correctly never sent.
+	if !notify.IsDeliverable(m.Email) {
+		_ = w.outbox.MarkSuperseded(ctx, m.ID, "recipient address is not deliverable")
+		slog.Info("notification suppressed, undeliverable recipient",
+			"outbox_id", m.ID, "template", m.Template, "domain", domainOf(m.Email))
+		return
+	}
+
 	msg := notify.Message{To: m.Email, Name: m.FullName, Template: m.Template, Payload: m.Payload}
 	if err := sender.Send(ctx, msg); err != nil {
 		w.recordFailure(ctx, m, err)
@@ -215,4 +232,15 @@ func (w *Worker) recordFailure(ctx context.Context, m postgres.PendingMessage, c
 	}
 	slog.Warn("notification delivery failed, will retry",
 		"outbox_id", m.ID, "template", m.Template, "error", reason)
+}
+
+// domainOf returns the domain part of an address, for logging.
+//
+// The local part can identify a person, and logs travel further than the
+// database does. The domain is enough to diagnose a suppression.
+func domainOf(address string) string {
+	if at := strings.LastIndex(address, "@"); at >= 0 {
+		return address[at+1:]
+	}
+	return "(none)"
 }
