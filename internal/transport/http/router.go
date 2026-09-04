@@ -18,6 +18,7 @@ type Handlers struct {
 	Circulation  *handler.CirculationHandler
 	Members      *handler.MemberHandler
 	Reservations *handler.ReservationHandler
+	Bookmarks    *handler.BookmarkHandler
 	Devices      *handler.DeviceHandler
 	Lookup       *handler.LookupHandler
 	Admin        *handler.AdminHandler
@@ -107,6 +108,14 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	mux.Handle("GET /api/v1/me/reservations", authenticate(http.HandlerFunc(h.Reservations.List)))
 	mux.Handle("POST /api/v1/reservations", authenticate(http.HandlerFunc(h.Reservations.Create)))
 	mux.Handle("DELETE /api/v1/reservations/{id}", authenticate(http.HandlerFunc(h.Reservations.Cancel)))
+
+	// Bookmarks: a member's own reading list. Every route takes the member
+	// from the token, so there is no endpoint by which one member's list can
+	// be read or written as another's, and no librarian view of it at all.
+	// What somebody is thinking of reading is their business.
+	mux.Handle("GET /api/v1/me/bookmarks", authenticate(http.HandlerFunc(h.Bookmarks.List)))
+	mux.Handle("POST /api/v1/bookmarks", authenticate(http.HandlerFunc(h.Bookmarks.Create)))
+	mux.Handle("DELETE /api/v1/bookmarks/{bookID}", authenticate(http.HandlerFunc(h.Bookmarks.Delete)))
 
 	// Push registrations belong to the signed-in account. Registering a device
 	// against somebody else would send them a stranger's due dates (REQ-071).

@@ -654,6 +654,87 @@ paths:
                     items: { $ref: '#/components/schemas/Loan' }
         "401": { $ref: '#/components/responses/Unauthenticated' }
 
+  /me/bookmarks:
+    get:
+      tags: [Bookmarks]
+      summary: Titles the signed-in member has saved
+      description: |
+        A member's own reading list, newest first.
+
+        There is deliberately **no endpoint that reads another member's
+        bookmarks**, and no librarian view of them. What somebody is thinking
+        of reading is their business, and the cheapest way to guarantee that is
+        to build no way to ask.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, default: 1 } }
+        - { in: query, name: per_page, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: The member's saved titles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        book: { $ref: '#/components/schemas/Book' }
+                        saved_at: { type: string, format: date-time }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /bookmarks:
+    post:
+      tags: [Bookmarks]
+      summary: Save a title
+      description: |
+        Adds a title to the signed-in member's list.
+
+        A bookmark is an interest in a **title**, never a claim on a copy. It
+        reserves nothing, joins no queue and changes no availability figure.
+        That is the whole difference from a reservation.
+
+        Saving the same title twice succeeds and changes nothing, so a client
+        need not check first. The response is `204` rather than `201` because
+        a status promising "created" would sometimes be untrue.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [book_id]
+              properties:
+                book_id: { type: string, format: uuid }
+      responses:
+        '204': { description: The title is saved }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /bookmarks/{bookID}:
+    delete:
+      tags: [Bookmarks]
+      summary: Remove a saved title
+      description: |
+        Addressed by **book** id, not bookmark id: a reader looking at a title
+        knows its id and should not have to fetch their whole list to find the
+        row that points at it.
+
+        Removing a title that was not saved succeeds. The caller asked for it
+        not to be saved, and it is not.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: bookID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: The title is not saved }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
   /me/reservations:
     get:
       tags: [My account]

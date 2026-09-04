@@ -214,6 +214,10 @@ func run() error {
 	memberService := service.NewMemberService(users, outbox)
 	reservationService := service.NewReservationService(reservations, outbox)
 
+	// Bookmarks: a member's own list of titles to come back to. It touches no
+	// copy and no queue, so it needs nothing the circulation service holds.
+	bookmarkService := service.NewBookmarkService(postgres.NewBookmarkRepo(db))
+
 	// A returned copy advances the queue for its title. Wired here rather than
 	// as a constructor argument so neither service has to import the other.
 	circulationService.SetReturnHook(reservationService)
@@ -224,6 +228,7 @@ func run() error {
 		Circulation:  handler.NewCirculationHandler(circulationService),
 		Members:      handler.NewMemberHandler(memberService, circulationService),
 		Reservations: handler.NewReservationHandler(reservationService),
+		Bookmarks:    handler.NewBookmarkHandler(bookmarkService),
 		Devices:      handler.NewDeviceHandler(outbox),
 		Lookup:       handler.NewLookupHandler(externalCatalogue),
 		Admin:        handler.NewAdminHandler(circulationService, audit),

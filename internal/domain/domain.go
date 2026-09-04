@@ -379,3 +379,26 @@ func BorrowableCount(stock, available int) int {
 
 // RetainsAShelfCopy reports whether this title is subject to the retention rule.
 func RetainsAShelfCopy(stock int) bool { return stock >= 2 }
+
+// Bookmark is a member saving a title to come back to.
+//
+// It is an interest in a TITLE, never a claim on a copy. It reserves nothing,
+// joins no queue and changes no availability figure. That is the whole
+// difference from a reservation, and it is why a bookmark can exist for a title
+// whose every copy is on the shelf.
+type Bookmark struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	BookID    uuid.UUID
+	CreatedAt time.Time
+}
+
+// BookmarkedBook is one entry in a member's saved list: the title itself,
+// together with when they saved it.
+//
+// The whole book travels rather than an id, because every screen that shows a
+// bookmark shows the title, its authors and whether a copy can be borrowed.
+type BookmarkedBook struct {
+	Book    Book
+	SavedAt time.Time
+}
