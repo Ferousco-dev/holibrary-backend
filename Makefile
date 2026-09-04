@@ -38,8 +38,8 @@ up: ## Start the local stack (Postgres, Redis, API)
 down: ## Stop the local stack
 	docker compose down
 
-migrate: ## Apply migrations to $$DATABASE_URL
-	@for f in migrations/*.sql; do \
+migrate: ## Apply migrations by hand (the server does this itself at startup)
+	@for f in internal/migrate/sql/*.sql; do \
 		echo "applying $$f"; \
 		psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$$f" || exit 1; \
 	done
