@@ -273,6 +273,26 @@ func run() error {
 		slog.Error("no mail provider configured in production; notifications will stay queued",
 			"remedy", "set RESEND_API_KEY and verify a sending domain")
 	}
+	// Push, if a Firebase service account has been supplied. The project id
+	// comes out of the key itself rather than a second variable, so the two
+	// cannot disagree.
+	if projectID, tokenFor, err := notify.FCMTokenSource(ctx, cfg.FirebaseKey); err != nil {
+		// A malformed key is a mistake worth shouting about: it means somebody
+		// intended push to work. Boot anyway, because email still delivers.
+		slog.Error("the Firebase key could not be read; push is disabled", "error", err)
+	} else if tokenFor != nil {
+		fcm := notify.NewFCM(projectID, tokenFor)
+		if fcm.Configured() {
+			senders = append(senders, fcm)
+			slog.Info("push notifications enabled", "firebase_project", projectID)
+		}
+	} else if cfg.IsProduction() {
+		// Without this the push channel has no sender, and every queued push
+		// message waits for one silently and forever.
+		slog.Warn("no Firebase key configured; push notifications will stay queued",
+			"remedy", "set FIREBASE_SERVICE_ACCOUNT")
+	}
+
 	worker := queue.NewWorker(outbox, 30*time.Second, senders...)
 	go worker.Run(ctx)
 

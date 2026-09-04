@@ -34,6 +34,7 @@ type Config struct {
 	// be believed for rate limiting. Anyone talking to the service directly can
 	// forge them, so this defaults to false and must be switched on explicitly
 	// once the deployment guarantees a proxy rewrites them (DEF-019).
+	FirebaseKey       string
 	TrustProxyHeaders bool
 
 	// SeedDemoData applies the demonstration migration, whose accounts have
@@ -94,6 +95,10 @@ func Load() (Config, error) {
 			c.CORSOrigins = append(c.CORSOrigins, o)
 		}
 	}
+
+	// Firebase service account key, as raw JSON or base64. Push is optional:
+	// an unset value leaves the channel unconfigured rather than failing boot.
+	c.FirebaseKey = os.Getenv("FIREBASE_SERVICE_ACCOUNT")
 
 	c.TrustProxyHeaders = os.Getenv("TRUST_PROXY_HEADERS") == "true"
 	c.SeedDemoData = os.Getenv("SEED_DEMO_DATA") == "true"
