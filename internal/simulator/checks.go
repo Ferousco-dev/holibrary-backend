@@ -176,6 +176,3 @@ func (a *Agent) Finish() *Report {
 	a.report.Outcome = "ok"
 	return a.report
 }
-
-// Report exposes the run so far.
-func (a *Agent) Report() *Report { return a.report }

@@ -32,20 +32,6 @@ type AuditEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Record writes an audit row. Failures are returned but callers generally log
-// and continue: losing an audit line is bad, failing the member's request
-// because of it is worse.
-func (r *AuditRepo) Record(ctx context.Context, actorID uuid.UUID, action, entityType string, entityID uuid.UUID, metadata map[string]any) error {
-	encoded, err := json.Marshal(metadata)
-	if err != nil {
-		return err
-	}
-	_, err = r.db.Exec(ctx, `
-		INSERT INTO audit_log (actor_id, action, entity_type, entity_id, metadata)
-		VALUES ($1,$2,$3,$4,$5)`, actorID, action, entityType, entityID, encoded)
-	return translate(err)
-}
-
 func (r *AuditRepo) List(ctx context.Context, limit, offset int) ([]AuditEntry, int, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT a.id, a.actor_id, coalesce(u.full_name,'(deleted)'), a.action,
