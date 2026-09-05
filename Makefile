@@ -1,4 +1,4 @@
-.PHONY: help run build test cover lint fmt docker up down migrate
+.PHONY: help run build test cover lint fmt docker up down migrate migrate-pending
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -39,7 +39,7 @@ down: ## Stop the local stack
 	docker compose down
 
 migrate: ## Apply migrations by hand (the server does this itself at startup)
-	@for f in internal/migrate/sql/*.sql; do \
-		echo "applying $$f"; \
-		psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$$f" || exit 1; \
-	done
+	go run ./cmd/migrate
+
+migrate-pending: ## Say which migrations would run, and run none of them
+	go run ./cmd/migrate -pending

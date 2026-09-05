@@ -146,3 +146,38 @@ func Apply(ctx context.Context, db *pgxpool.Pool, includeSeeds bool) ([]string, 
 	}
 	return ran, nil
 }
+
+// Pending reports what Apply would run, without running it. Used by
+// `go run ./cmd/migrate -pending`, so an operator can see what is about to
+// happen to a database before it happens.
+func Pending(ctx context.Context, db *pgxpool.Pool, includeSeeds bool) ([]string, error) {
+	if _, err := db.Exec(ctx, ledger); err != nil {
+		return nil, err
+	}
+	applied := map[string]bool{}
+	rows, err := db.Query(ctx, `SELECT name FROM schema_migrations`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		applied[n] = true
+	}
+
+	migrations, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	var pending []string
+	for _, m := range migrations {
+		if applied[m.Name] || (m.Seed && !includeSeeds) {
+			continue
+		}
+		pending = append(pending, m.Name)
+	}
+	return pending, nil
+}
