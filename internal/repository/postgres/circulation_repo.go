@@ -158,6 +158,17 @@ func (r *CirculationRepo) Borrow(ctx context.Context, p BorrowParams) (domain.Lo
 		return domain.Loan{}, translate(err)
 	}
 
+	// On the transaction, so a loan that rolls back leaves no trace claiming it
+	// happened (REQ-068).
+	if err := recordAudit(ctx, tx, p.IssuedBy, "LOAN_ISSUED", "loan", l.ID, map[string]any{
+		"copy_id":          l.CopyID,
+		"member_id":        l.UserID,
+		"accession_number": l.AccessionNumber,
+		"due_at":           l.DueAt,
+	}); err != nil {
+		return domain.Loan{}, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Loan{}, translate(err)
 	}
@@ -214,6 +225,15 @@ func (r *CirculationRepo) Return(ctx context.Context, loanID, staffID uuid.UUID)
 		UPDATE copies SET status = 'available', updated_at = now()
 		 WHERE id = $1 AND status = 'on_loan'`, l.CopyID); err != nil {
 		return domain.Loan{}, translate(err)
+	}
+
+	if err := recordAudit(ctx, tx, staffID, "LOAN_RETURNED", "loan", l.ID, map[string]any{
+		"copy_id":   l.CopyID,
+		"member_id": l.UserID,
+		"due_at":    l.DueAt,
+		"overdue":   l.ReturnedAt != nil && l.ReturnedAt.After(l.DueAt),
+	}); err != nil {
+		return domain.Loan{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

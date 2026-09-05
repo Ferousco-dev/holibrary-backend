@@ -20,7 +20,7 @@ type MemberStore interface {
 	Create(ctx context.Context, p postgres.CreateUserParams) (domain.User, error)
 	List(ctx context.Context, search string, limit, offset int) ([]domain.User, int, error)
 	FindByID(ctx context.Context, id uuid.UUID) (domain.User, error)
-	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error
+	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus, staffID uuid.UUID) error
 }
 
 type MemberService struct {
@@ -88,7 +88,7 @@ func RolesCreatableBy(actor domain.Role) map[domain.Role]bool {
 //
 // The temporary password is returned to the librarian to hand over, and the
 // account is flagged to force a change at first login (REQ-007).
-func (s *MemberService) Create(ctx context.Context, actor domain.Role, p NewMemberParams) (domain.User, string, error) {
+func (s *MemberService) Create(ctx context.Context, actor domain.Role, actorID uuid.UUID, p NewMemberParams) (domain.User, string, error) {
 	if err := validateNewMember(p); err != nil {
 		return domain.User{}, "", err
 	}
@@ -125,6 +125,7 @@ func (s *MemberService) Create(ctx context.Context, actor domain.Role, p NewMemb
 	}
 
 	user, err := s.members.Create(ctx, postgres.CreateUserParams{
+		CreatedBy:    actorID,
 		Identifier:   strings.TrimSpace(p.Identifier),
 		Email:        strings.ToLower(strings.TrimSpace(p.Email)),
 		FullName:     p.displayName(),
@@ -224,7 +225,7 @@ var csvAliases = map[string][]string{
 //
 // A bad row never aborts the batch. It is counted, named by line number, and
 // skipped (REQ-011).
-func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, r io.Reader, dryRun bool) (ImportResult, error) {
+func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, actorID uuid.UUID, r io.Reader, dryRun bool) (ImportResult, error) {
 	reader := csv.NewReader(r)
 	reader.TrimLeadingSpace = true
 	reader.FieldsPerRecord = -1 // rows are validated individually below
@@ -313,7 +314,7 @@ func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, r io.R
 		}
 
 		// Imported rows are always members. A CSV can never introduce staff.
-		user, temporary, err := s.Create(ctx, actor, params)
+		user, temporary, err := s.Create(ctx, actor, actorID, params)
 		switch {
 		case errors.Is(err, domain.ErrConflict):
 			// Re-importing last session's roll is routine, not a failure.
@@ -375,6 +376,6 @@ func (s *MemberService) Get(ctx context.Context, id uuid.UUID) (domain.User, err
 }
 
 // SetStatus suspends or reactivates a member (REQ-015).
-func (s *MemberService) SetStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error {
-	return s.members.UpdateStatus(ctx, id, status)
+func (s *MemberService) SetStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus, staffID uuid.UUID) error {
+	return s.members.UpdateStatus(ctx, id, status, staffID)
 }

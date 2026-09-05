@@ -100,7 +100,9 @@ func (h *CatalogueHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// that already exists, so the librarian can add a copy to it rather than
 	// creating a duplicate. This is the API telling the caller what to do next
 	// instead of only telling it no.
+	staffID, _ := middleware.UserID(r.Context())
 	book, err := h.catalogue.CreateBook(r.Context(), postgres.CreateBookParams{
+		StaffID:            staffID,
 		Title:              req.Title,
 		Subtitle:           req.Subtitle,
 		ISBN13:             req.ISBN13,
@@ -141,7 +143,8 @@ func (h *CatalogueHandler) Archive(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.catalogue.Archive(r.Context(), id); err != nil {
+	staffID, _ := middleware.UserID(r.Context())
+	if err := h.catalogue.Archive(r.Context(), id, staffID); err != nil {
 		response.FromError(w, err)
 		return
 	}
@@ -176,7 +179,8 @@ func (h *CatalogueHandler) AddCopy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	copy, err := h.catalogue.AddCopy(r.Context(), bookID, req.AccessionNumber, policy)
+	staffID, _ := middleware.UserID(r.Context())
+	copy, err := h.catalogue.AddCopy(r.Context(), bookID, req.AccessionNumber, policy, staffID)
 	if err != nil {
 		response.FromError(w, err)
 		return

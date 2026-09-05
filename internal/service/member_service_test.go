@@ -31,7 +31,7 @@ func (f *fakeMemberStore) List(context.Context, string, int, int) ([]domain.User
 func (f *fakeMemberStore) FindByID(context.Context, uuid.UUID) (domain.User, error) {
 	return domain.User{}, nil
 }
-func (f *fakeMemberStore) UpdateStatus(context.Context, uuid.UUID, domain.UserStatus) error {
+func (f *fakeMemberStore) UpdateStatus(context.Context, uuid.UUID, domain.UserStatus, uuid.UUID) error {
 	return nil
 }
 
@@ -51,7 +51,7 @@ func TestImportCSVDryRunWritesNothing(t *testing.T) {
 	store := &fakeMemberStore{}
 	svc := service.NewMemberService(store, &fakeNotifier{})
 
-	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, strings.NewReader(rollCSV), true)
+	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, uuid.Nil, strings.NewReader(rollCSV), true)
 	if err != nil {
 		t.Fatalf("ImportCSV: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestImportCSVCommitsGoodRowsDespiteBadOnes(t *testing.T) {
 	store := &fakeMemberStore{}
 	svc := service.NewMemberService(store, &fakeNotifier{})
 
-	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, strings.NewReader(rollCSV), false)
+	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, uuid.Nil, strings.NewReader(rollCSV), false)
 	if err != nil {
 		t.Fatalf("ImportCSV: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestImportCSVReportsAlreadyRegistered(t *testing.T) {
 	store := &fakeMemberStore{conflicts: map[string]bool{"SWE/2025/001": true}}
 	svc := service.NewMemberService(store, &fakeNotifier{})
 
-	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, strings.NewReader(rollCSV), false)
+	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, uuid.Nil, strings.NewReader(rollCSV), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestImportCSVReportsAlreadyRegistered(t *testing.T) {
 func TestImportCSVRejectsUnusableHeader(t *testing.T) {
 	svc := service.NewMemberService(&fakeMemberStore{}, &fakeNotifier{})
 
-	_, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, strings.NewReader("name,phone\nSomeone,08000000000\n"), true)
+	_, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, uuid.Nil, strings.NewReader("name,phone\nSomeone,08000000000\n"), true)
 	if err == nil {
 		t.Fatal("a header with no student id must be rejected")
 	}
@@ -155,12 +155,12 @@ func TestCreateIssuesUnpredictableTemporaryPassword(t *testing.T) {
 		FirstName: "Ada", LastName: "Obi", Category: domain.CategoryUndergraduate,
 	}
 
-	_, first, err := svc.Create(context.Background(), domain.RoleLibrarian, params)
+	_, first, err := svc.Create(context.Background(), domain.RoleLibrarian, uuid.Nil, params)
 	if err != nil {
 		t.Fatal(err)
 	}
 	params.Identifier = "SWE/2025/011"
-	_, second, err := svc.Create(context.Background(), domain.RoleLibrarian, params)
+	_, second, err := svc.Create(context.Background(), domain.RoleLibrarian, uuid.Nil, params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestLibrarianCannotCreateStaffAccounts(t *testing.T) {
 	svc := service.NewMemberService(store, &fakeNotifier{})
 
 	for _, role := range []domain.Role{domain.RoleAdmin, domain.RoleLibrarian} {
-		_, _, err := svc.Create(context.Background(), domain.RoleLibrarian, service.NewMemberParams{
+		_, _, err := svc.Create(context.Background(), domain.RoleLibrarian, uuid.Nil, service.NewMemberParams{
 			Identifier: "SWE/2025/999", Email: "x@oauife.edu.ng",
 			FirstName: "Priv", LastName: "Escalation",
 			Category: domain.CategoryUndergraduate, Role: role,
@@ -198,7 +198,7 @@ func TestLibrarianCannotCreateStaffAccounts(t *testing.T) {
 	}
 
 	// An administrator may.
-	if _, _, err := svc.Create(context.Background(), domain.RoleAdmin, service.NewMemberParams{
+	if _, _, err := svc.Create(context.Background(), domain.RoleAdmin, uuid.Nil, service.NewMemberParams{
 		Identifier: "LIB/STAFF/002", Email: "staff@oauife.edu.ng",
 		FirstName: "New", LastName: "Librarian", Role: domain.RoleLibrarian,
 	}); err != nil {

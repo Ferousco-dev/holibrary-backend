@@ -173,6 +173,9 @@ type CreateBookParams struct {
 	Description        string
 	Authors            []string
 	Subjects           []string
+	// StaffID is the librarian adding the title, for the audit trail. Zero
+	// when the importer adds a book from Open Library with nobody at a desk.
+	StaffID uuid.UUID
 }
 
 // FindBookByISBN resolves a title already in the catalogue.
@@ -238,6 +241,14 @@ func (r *CatalogueRepo) CreateBook(ctx context.Context, p CreateBookParams) (dom
 	if _, err := tx.Exec(ctx, `SELECT books_refresh_search_vector($1)`, id); err != nil {
 		return domain.Book{}, translate(err)
 	}
+
+	if err := recordAudit(ctx, tx, p.StaffID, "BOOK_CREATED", "book", id, map[string]any{
+		"title":       p.Title,
+		"call_number": p.CallNumber,
+	}); err != nil {
+		return domain.Book{}, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Book{}, translate(err)
 	}
@@ -292,8 +303,14 @@ func linkSubjects(ctx context.Context, tx pgx.Tx, bookID uuid.UUID, headings []s
 
 // ArchiveBook hides a title from search without deleting it, because its loan
 // history must survive (DOM-008, REQ-020).
-func (r *CatalogueRepo) ArchiveBook(ctx context.Context, id uuid.UUID) error {
-	tag, err := r.db.Exec(ctx,
+func (r *CatalogueRepo) ArchiveBook(ctx context.Context, id, staffID uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return translate(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	tag, err := tx.Exec(ctx,
 		`UPDATE books SET status = 'archived', updated_at = now() WHERE id = $1`, id)
 	if err != nil {
 		return translate(err)
@@ -301,7 +318,10 @@ func (r *CatalogueRepo) ArchiveBook(ctx context.Context, id uuid.UUID) error {
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	if err := recordAudit(ctx, tx, staffID, "BOOK_ARCHIVED", "book", id, nil); err != nil {
+		return err
+	}
+	return translate(tx.Commit(ctx))
 }
 
 // AddCopy registers one physical volume against a title.
@@ -310,7 +330,13 @@ func (r *CatalogueRepo) ArchiveBook(ctx context.Context, id uuid.UUID) error {
 // across the whole collection; the call number it inherits from the book is not
 // (DOM-002, REQ-022, REQ-023).
 func (r *CatalogueRepo) AddCopy(ctx context.Context, bookID uuid.UUID,
-	accession string, policy domain.LoanPolicy) (domain.Copy, error) {
+	accession string, policy domain.LoanPolicy, staffID uuid.UUID) (domain.Copy, error) {
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return domain.Copy{}, translate(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	const q = `INSERT INTO copies (book_id, accession_number, loan_policy)
 	           VALUES ($1,$2,$3)
@@ -318,13 +344,24 @@ func (r *CatalogueRepo) AddCopy(ctx context.Context, bookID uuid.UUID,
 	                     acquired_at, coalesce(notes,'')`
 
 	var c domain.Copy
-	err := r.db.QueryRow(ctx, q, bookID, strings.TrimSpace(accession), policy).Scan(
+	err = tx.QueryRow(ctx, q, bookID, strings.TrimSpace(accession), policy).Scan(
 		&c.ID, &c.BookID, &c.AccessionNumber, &c.LoanPolicy, &c.Status,
 		&c.AcquiredAt, &c.Notes)
 	if err != nil {
 		if isUniqueViolation(err, "copies_accession_number_key") {
 			return domain.Copy{}, domain.ErrDuplicateAccession
 		}
+		return domain.Copy{}, translate(err)
+	}
+
+	if err := recordAudit(ctx, tx, staffID, "COPY_ADDED", "copy", c.ID, map[string]any{
+		"book_id":          bookID,
+		"accession_number": c.AccessionNumber,
+		"loan_policy":      c.LoanPolicy,
+	}); err != nil {
+		return domain.Copy{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return domain.Copy{}, translate(err)
 	}
 	return c, nil
@@ -411,7 +448,13 @@ func (r *CatalogueRepo) SetCopyStatusClosingLoan(ctx context.Context, id uuid.UU
 // UpdateCopy changes a volume's policy or status, which is how a librarian marks
 // an item lost, damaged or withdrawn without erasing its history (REQ-024..026).
 func (r *CatalogueRepo) UpdateCopy(ctx context.Context, id uuid.UUID,
-	policy *domain.LoanPolicy, status *domain.CopyStatus) error {
+	policy *domain.LoanPolicy, status *domain.CopyStatus, staffID uuid.UUID) error {
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return translate(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	const q = `UPDATE copies
 	              SET loan_policy = coalesce($2, loan_policy),
@@ -419,14 +462,27 @@ func (r *CatalogueRepo) UpdateCopy(ctx context.Context, id uuid.UUID,
 	                  updated_at  = now()
 	            WHERE id = $1`
 
-	tag, err := r.db.Exec(ctx, q, id, policy, status)
+	tag, err := tx.Exec(ctx, q, id, policy, status)
 	if err != nil {
 		return translate(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+
+	// Only the fields that were actually given are recorded. A nil here means
+	// "left alone", and writing it down as a change would be a lie in the log.
+	changed := map[string]any{}
+	if policy != nil {
+		changed["loan_policy"] = *policy
+	}
+	if status != nil {
+		changed["status"] = *status
+	}
+	if err := recordAudit(ctx, tx, staffID, "COPY_UPDATED", "copy", id, changed); err != nil {
+		return err
+	}
+	return translate(tx.Commit(ctx))
 }
 
 func nullif(s string) any {

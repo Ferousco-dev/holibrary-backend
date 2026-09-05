@@ -17,11 +17,11 @@ type CatalogueStore interface {
 	FindBook(ctx context.Context, id uuid.UUID) (domain.Book, error)
 	FindBookByISBN(ctx context.Context, isbn string) (domain.Book, error)
 	CreateBook(ctx context.Context, p postgres.CreateBookParams) (domain.Book, error)
-	ArchiveBook(ctx context.Context, id uuid.UUID) error
-	AddCopy(ctx context.Context, bookID uuid.UUID, accession string, policy domain.LoanPolicy) (domain.Copy, error)
+	ArchiveBook(ctx context.Context, id, staffID uuid.UUID) error
+	AddCopy(ctx context.Context, bookID uuid.UUID, accession string, policy domain.LoanPolicy, staffID uuid.UUID) (domain.Copy, error)
 	ListCopies(ctx context.Context, bookID uuid.UUID) ([]domain.Copy, error)
 	FindCopy(ctx context.Context, id uuid.UUID) (domain.Copy, error)
-	UpdateCopy(ctx context.Context, id uuid.UUID, policy *domain.LoanPolicy, status *domain.CopyStatus) error
+	UpdateCopy(ctx context.Context, id uuid.UUID, policy *domain.LoanPolicy, status *domain.CopyStatus, staffID uuid.UUID) error
 	SetCopyStatusClosingLoan(ctx context.Context, id uuid.UUID, status domain.CopyStatus, staffID uuid.UUID) error
 }
 
@@ -119,19 +119,19 @@ func normaliseISBN(isbn string) string {
 
 // Archive hides a title from the catalogue without deleting it, because its
 // loan history has to survive (DOM-008, REQ-020).
-func (s *CatalogueService) Archive(ctx context.Context, id uuid.UUID) error {
-	return s.books.ArchiveBook(ctx, id)
+func (s *CatalogueService) Archive(ctx context.Context, id, staffID uuid.UUID) error {
+	return s.books.ArchiveBook(ctx, id, staffID)
 }
 
 // AddCopy registers one physical volume against a title (REQ-022).
-func (s *CatalogueService) AddCopy(ctx context.Context, bookID uuid.UUID, accession string, policy domain.LoanPolicy) (domain.Copy, error) {
+func (s *CatalogueService) AddCopy(ctx context.Context, bookID uuid.UUID, accession string, policy domain.LoanPolicy, staffID uuid.UUID) (domain.Copy, error) {
 	if strings.TrimSpace(accession) == "" {
 		return domain.Copy{}, domain.ErrDuplicateAccession
 	}
 	if policy == "" {
 		policy = domain.PolicyCirculating
 	}
-	return s.books.AddCopy(ctx, bookID, accession, policy)
+	return s.books.AddCopy(ctx, bookID, accession, policy, staffID)
 }
 
 // UpdateCopy changes a volume's loan policy or status, enforcing the copy state
@@ -172,5 +172,5 @@ func (s *CatalogueService) UpdateCopy(ctx context.Context, id uuid.UUID,
 	if policy == nil && status == nil {
 		return nil
 	}
-	return s.books.UpdateCopy(ctx, id, policy, status)
+	return s.books.UpdateCopy(ctx, id, policy, status, staffID)
 }

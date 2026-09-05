@@ -39,14 +39,14 @@ func (f *fakeCatalogue) CreateBook(_ context.Context, p postgres.CreateBookParam
 	}
 	return domain.Book{Title: p.Title, CallNumber: p.CallNumber}, nil
 }
-func (f *fakeCatalogue) ArchiveBook(context.Context, uuid.UUID) error { return nil }
-func (f *fakeCatalogue) AddCopy(_ context.Context, _ uuid.UUID, a string, p domain.LoanPolicy) (domain.Copy, error) {
+func (f *fakeCatalogue) ArchiveBook(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+func (f *fakeCatalogue) AddCopy(_ context.Context, _ uuid.UUID, a string, p domain.LoanPolicy, _ uuid.UUID) (domain.Copy, error) {
 	return domain.Copy{AccessionNumber: a, LoanPolicy: p}, nil
 }
 func (f *fakeCatalogue) ListCopies(context.Context, uuid.UUID) ([]domain.Copy, error) {
 	return nil, nil
 }
-func (f *fakeCatalogue) UpdateCopy(context.Context, uuid.UUID, *domain.LoanPolicy, *domain.CopyStatus) error {
+func (f *fakeCatalogue) UpdateCopy(context.Context, uuid.UUID, *domain.LoanPolicy, *domain.CopyStatus, uuid.UUID) error {
 	return nil
 }
 func (f *fakeCatalogue) FindCopy(context.Context, uuid.UUID) (domain.Copy, error) {

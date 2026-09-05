@@ -72,7 +72,8 @@ func (h *MemberHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, temporary, err := h.members.Create(r.Context(), middleware.Role(r.Context()), service.NewMemberParams{
+	actorID, _ := middleware.UserID(r.Context())
+	user, temporary, err := h.members.Create(r.Context(), middleware.Role(r.Context()), actorID, service.NewMemberParams{
 		Identifier:  req.Identifier,
 		Email:       req.Email,
 		FullName:    req.FullName,
@@ -127,7 +128,8 @@ func (h *MemberHandler) ImportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	result, err := h.members.ImportCSV(r.Context(), middleware.Role(r.Context()), file, boolParam(r, "dry_run"))
+	actorID, _ := middleware.UserID(r.Context())
+	result, err := h.members.ImportCSV(r.Context(), middleware.Role(r.Context()), actorID, file, boolParam(r, "dry_run"))
 	if err != nil {
 		response.ValidationError(w, err.Error(), nil)
 		return
@@ -205,7 +207,8 @@ func (h *MemberHandler) SetStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.members.SetStatus(r.Context(), id, status); err != nil {
+	staffID, _ := middleware.UserID(r.Context())
+	if err := h.members.SetStatus(r.Context(), id, status, staffID); err != nil {
 		response.FromError(w, err)
 		return
 	}

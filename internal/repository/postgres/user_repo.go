@@ -94,6 +94,10 @@ type CreateUserParams struct {
 	// simulated member is indistinguishable from a real student, which is how
 	// a demonstration quietly becomes a data-quality problem.
 	IsSynthetic bool
+	// CreatedBy is the staff member registering this account, for the audit
+	// trail. Zero for the first administrator, whom cmd/bootstrap creates when
+	// there is nobody yet to attribute it to, and for simulated members.
+	CreatedBy uuid.UUID
 }
 
 func (r *UserRepo) Create(ctx context.Context, p CreateUserParams) (domain.User, error) {
@@ -103,7 +107,13 @@ func (r *UserRepo) Create(ctx context.Context, p CreateUserParams) (domain.User,
 	           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 	           RETURNING ` + userColumns
 
-	u, err := scanUser(r.db.QueryRow(ctx, q,
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return domain.User{}, translate(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	u, err := scanUser(tx.QueryRow(ctx, q,
 		p.Identifier, p.Email, p.FullName, nullif(p.FirstName), nullif(p.LastName),
 		nullif(p.Faculty), nullif(p.Department), nullif(p.Level),
 		p.PasswordHash, p.Role, p.Category, p.IsSynthetic))
@@ -111,6 +121,19 @@ func (r *UserRepo) Create(ctx context.Context, p CreateUserParams) (domain.User,
 		if isUniqueViolation(err, "") {
 			return domain.User{}, domain.ErrConflict
 		}
+		return domain.User{}, translate(err)
+	}
+
+	// No password material of any kind, not even its length. The audit log is
+	// read by staff through GET /admin/audit.
+	if err := recordAudit(ctx, tx, p.CreatedBy, "MEMBER_CREATED", "user", u.ID, map[string]any{
+		"identifier": u.Identifier,
+		"role":       u.Role,
+		"synthetic":  p.IsSynthetic,
+	}); err != nil {
+		return domain.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return domain.User{}, translate(err)
 	}
 	return u, nil
@@ -158,16 +181,27 @@ func (r *UserRepo) List(ctx context.Context, search string, limit, offset int) (
 	return users, total, rows.Err()
 }
 
-func (r *UserRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error {
+func (r *UserRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus, staffID uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return translate(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
 	const q = `UPDATE users SET status = $2, updated_at = now() WHERE id = $1`
-	tag, err := r.db.Exec(ctx, q, id, status)
+	tag, err := tx.Exec(ctx, q, id, status)
 	if err != nil {
 		return translate(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	if err := recordAudit(ctx, tx, staffID, "MEMBER_STATUS_CHANGED", "user", id, map[string]any{
+		"status": status,
+	}); err != nil {
+		return err
+	}
+	return translate(tx.Commit(ctx))
 }
 
 // UpdatePassword stores a new hash, clears the first-login flag, and invalidates
