@@ -241,6 +241,53 @@ func (r *UserRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain
 	return translate(tx.Commit(ctx))
 }
 
+// UpdateRole changes authorization in the same transaction as its audit line.
+// Admin rows are locked before counting so two concurrent demotions cannot both
+// observe a second administrator and leave the system with none.
+func (r *UserRepo) UpdateRole(ctx context.Context, id uuid.UUID, role domain.Role, staffID uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return translate(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	var current domain.Role
+	if err := tx.QueryRow(ctx, `SELECT role FROM users WHERE id = $1 FOR UPDATE`, id).Scan(&current); err != nil {
+		return translate(err)
+	}
+	if current == role {
+		return translate(tx.Commit(ctx))
+	}
+
+	adminRows, err := tx.Query(ctx, `SELECT id FROM users WHERE role = 'admin' FOR UPDATE`)
+	if err != nil {
+		return translate(err)
+	}
+	adminCount := 0
+	for adminRows.Next() {
+		adminCount++
+	}
+	if err := adminRows.Err(); err != nil {
+		adminRows.Close()
+		return translate(err)
+	}
+	adminRows.Close()
+	if current == domain.RoleAdmin && role != domain.RoleAdmin && adminCount <= 1 {
+		return domain.ErrConflict
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE users SET role = $2, updated_at = now() WHERE id = $1`, id, role); err != nil {
+		return translate(err)
+	}
+	if err := recordAudit(ctx, tx, staffID, "MEMBER_ROLE_CHANGED", "user", id, map[string]any{
+		"from": current,
+		"to":   role,
+	}); err != nil {
+		return err
+	}
+	return translate(tx.Commit(ctx))
+}
+
 // UpdatePassword stores a new hash, clears the first-login flag, and invalidates
 // every session issued before this moment.
 //

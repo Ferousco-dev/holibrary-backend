@@ -155,6 +155,8 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	mux.Handle("POST /api/v1/members/import", staff(h.Members.ImportCSV))
 	mux.Handle("GET /api/v1/members/{id}", staff(h.Members.Get))
 	mux.Handle("PATCH /api/v1/members/{id}/status", staff(h.Members.SetStatus))
+	mux.Handle("PATCH /api/v1/members/{id}/role",
+		authenticate(middleware.RequireAdmin(http.HandlerFunc(h.Members.SetRole))))
 
 	mux.Handle("GET /api/v1/admin/dashboard", staff(h.Admin.Dashboard))
 

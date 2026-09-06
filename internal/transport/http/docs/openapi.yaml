@@ -1118,6 +1118,31 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
 
+  /members/{id}/role:
+    patch:
+      tags: [Administration]
+      summary: Change a member's authorization role
+      description: Administrator only. Role changes are audited, and the last administrator cannot be demoted.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [member, librarian, admin] }
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: The change would remove the last administrator.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /admin/dashboard:
     get:
       tags: [Administration]

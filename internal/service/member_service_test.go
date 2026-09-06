@@ -19,6 +19,7 @@ import (
 type fakeMemberStore struct {
 	created   []postgres.CreateUserParams
 	conflicts map[string]bool
+	role      domain.Role
 }
 
 func (f *fakeMemberStore) Create(_ context.Context, p postgres.CreateUserParams) (domain.User, error) {
@@ -50,6 +51,11 @@ func (f *fakeMemberStore) FindByID(context.Context, uuid.UUID) (domain.User, err
 	return domain.User{}, nil
 }
 func (f *fakeMemberStore) UpdateStatus(context.Context, uuid.UUID, domain.UserStatus, uuid.UUID) error {
+	return nil
+}
+
+func (f *fakeMemberStore) UpdateRole(_ context.Context, _ uuid.UUID, role domain.Role, _ uuid.UUID) error {
+	f.role = role
 	return nil
 }
 
@@ -263,6 +269,30 @@ func TestLibrarianCannotCreateStaffAccounts(t *testing.T) {
 		FirstName: "New", LastName: "Librarian", Role: domain.RoleLibrarian,
 	}); err != nil {
 		t.Errorf("an administrator may create a librarian: %v", err)
+	}
+}
+
+func TestSetRoleAcceptsSupportedRoles(t *testing.T) {
+	store := &fakeMemberStore{}
+	svc := service.NewMemberService(store, nil)
+	for _, role := range []domain.Role{domain.RoleMember, domain.RoleLibrarian, domain.RoleAdmin} {
+		if err := svc.SetRole(context.Background(), uuid.New(), role, uuid.New()); err != nil {
+			t.Fatalf("SetRole(%s): %v", role, err)
+		}
+		if store.role != role {
+			t.Fatalf("stored role = %s, want %s", store.role, role)
+		}
+	}
+}
+
+func TestSetRoleRejectsUnsupportedRoles(t *testing.T) {
+	store := &fakeMemberStore{}
+	svc := service.NewMemberService(store, nil)
+	if err := svc.SetRole(context.Background(), uuid.New(), domain.Role("owner"), uuid.New()); err == nil {
+		t.Fatal("unsupported role must be rejected")
+	}
+	if store.role != "" {
+		t.Fatal("unsupported role must not reach the store")
 	}
 }
 

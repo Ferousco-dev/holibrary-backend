@@ -22,6 +22,7 @@ type MemberStore interface {
 	List(ctx context.Context, search string, limit, offset int) ([]domain.User, int, error)
 	FindByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus, staffID uuid.UUID) error
+	UpdateRole(ctx context.Context, id uuid.UUID, role domain.Role, staffID uuid.UUID) error
 	ExistingIdentifiers(ctx context.Context, identifiers []string) (map[string]bool, error)
 }
 
@@ -486,4 +487,15 @@ func (s *MemberService) ResendInvitation(ctx context.Context, id uuid.UUID) erro
 // SetStatus suspends or reactivates a member (REQ-015).
 func (s *MemberService) SetStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus, staffID uuid.UUID) error {
 	return s.members.UpdateStatus(ctx, id, status, staffID)
+}
+
+// SetRole changes an account's authorization role. The HTTP route is admin-only;
+// repository enforcement protects the last-administrator invariant atomically.
+func (s *MemberService) SetRole(ctx context.Context, id uuid.UUID, role domain.Role, staffID uuid.UUID) error {
+	switch role {
+	case domain.RoleMember, domain.RoleLibrarian, domain.RoleAdmin:
+		return s.members.UpdateRole(ctx, id, role, staffID)
+	default:
+		return fmt.Errorf("role must be member, librarian or admin")
+	}
 }

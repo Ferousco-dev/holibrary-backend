@@ -186,6 +186,10 @@ type updateMemberStatusRequest struct {
 	Status string `json:"status"`
 }
 
+type updateMemberRoleRequest struct {
+	Role string `json:"role"`
+}
+
 // SetStatus suspends or reactivates a member (REQ-015).
 func (h *MemberHandler) SetStatus(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, r, "id")
@@ -212,4 +216,30 @@ func (h *MemberHandler) SetStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, map[string]string{"status": string(status)}, nil)
+}
+
+// SetRole changes a user's authorization role. Router middleware restricts it
+// to administrators; librarians can manage membership but cannot grant access.
+func (h *MemberHandler) SetRole(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	var req updateMemberRoleRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	role := domain.Role(req.Role)
+	switch role {
+	case domain.RoleMember, domain.RoleLibrarian, domain.RoleAdmin:
+	default:
+		response.ValidationError(w, "role must be member, librarian or admin.", nil)
+		return
+	}
+	staffID, _ := middleware.UserID(r.Context())
+	if err := h.members.SetRole(r.Context(), id, role, staffID); err != nil {
+		response.FromError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"role": string(role)}, nil)
 }
