@@ -40,6 +40,10 @@ func (f *fakeCatalogue) CreateBook(_ context.Context, p postgres.CreateBookParam
 	return domain.Book{Title: p.Title, CallNumber: p.CallNumber}, nil
 }
 func (f *fakeCatalogue) ArchiveBook(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+
+func (f *fakeCatalogue) FindCopyByAccession(context.Context, string) (postgres.CopyAtDesk, error) {
+	return postgres.CopyAtDesk{}, nil
+}
 func (f *fakeCatalogue) AddCopy(_ context.Context, _ uuid.UUID, a string, p domain.LoanPolicy, _ uuid.UUID) (domain.Copy, error) {
 	return domain.Copy{AccessionNumber: a, LoanPolicy: p}, nil
 }

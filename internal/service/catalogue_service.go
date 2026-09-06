@@ -21,6 +21,7 @@ type CatalogueStore interface {
 	AddCopy(ctx context.Context, bookID uuid.UUID, accession string, policy domain.LoanPolicy, staffID uuid.UUID) (domain.Copy, error)
 	ListCopies(ctx context.Context, bookID uuid.UUID) ([]domain.Copy, error)
 	FindCopy(ctx context.Context, id uuid.UUID) (domain.Copy, error)
+	FindCopyByAccession(ctx context.Context, accession string) (postgres.CopyAtDesk, error)
 	UpdateCopy(ctx context.Context, id uuid.UUID, policy *domain.LoanPolicy, status *domain.CopyStatus, staffID uuid.UUID) error
 	SetCopyStatusClosingLoan(ctx context.Context, id uuid.UUID, status domain.CopyStatus, staffID uuid.UUID) error
 }
@@ -121,6 +122,19 @@ func normaliseISBN(isbn string) string {
 // loan history has to survive (DOM-008, REQ-020).
 func (s *CatalogueService) Archive(ctx context.Context, id, staffID uuid.UUID) error {
 	return s.books.ArchiveBook(ctx, id, staffID)
+}
+
+// CopyAtDesk resolves the number printed on a volume, which is the only thing
+// the circulation desk has in its hand.
+//
+// Both desk screens start here: whether the answer carries an open loan is
+// what decides between issuing this copy and taking it back.
+func (s *CatalogueService) CopyAtDesk(ctx context.Context, accession string) (postgres.CopyAtDesk, error) {
+	accession = strings.TrimSpace(accession)
+	if accession == "" {
+		return postgres.CopyAtDesk{}, domain.ErrNotFound
+	}
+	return s.books.FindCopyByAccession(ctx, accession)
 }
 
 // AddCopy registers one physical volume against a title (REQ-022).

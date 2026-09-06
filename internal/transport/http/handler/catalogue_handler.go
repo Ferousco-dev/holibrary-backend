@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
 	"github.com/Ferousco-dev/holibrary-backend/internal/repository/postgres"
@@ -15,6 +16,53 @@ type CatalogueHandler struct{ catalogue *service.CatalogueService }
 
 func NewCatalogueHandler(c *service.CatalogueService) *CatalogueHandler {
 	return &CatalogueHandler{catalogue: c}
+}
+
+// CopyAtDesk answers "what is this book in my hand?" from its accession number.
+//
+// Staff only: the reply names the member currently holding the copy, which is
+// circulation data and not the reader's own business (REQ-037).
+func (h *CatalogueHandler) CopyAtDesk(w http.ResponseWriter, r *http.Request) {
+	accession := r.URL.Query().Get("accession")
+	if accession == "" {
+		response.ValidationError(w, "Give the accession number printed on the copy.", nil)
+		return
+	}
+
+	found, err := h.catalogue.CopyAtDesk(r.Context(), accession)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			// The desk types these by hand when a barcode will not scan, so the
+			// common cause is a typo, not a missing book. Say which number failed.
+			response.Error(w, http.StatusNotFound, "NOT_FOUND",
+				"No copy carries the accession number "+accession+".", nil)
+			return
+		}
+		response.FromError(w, err)
+		return
+	}
+	// The loan goes through the same view the rest of the API uses, so the
+	// desk sees snake_case, an overdue flag computed from the clock, and no
+	// zero-uuid fields this query never read.
+	out := copyAtDeskResponse{
+		Copy:       found.Copy,
+		BookTitle:  found.BookTitle,
+		CallNumber: found.CallNumber,
+	}
+	if found.Loan != nil {
+		view := toLoanResponse(*found.Loan, time.Now().UTC())
+		out.Loan = &view
+	}
+	response.JSON(w, http.StatusOK, out, nil)
+}
+
+// copyAtDeskResponse keeps loan to the shape every other endpoint sends, so a
+// screen written against /me/loans reads this one without a second mapping.
+type copyAtDeskResponse struct {
+	Copy       domain.Copy   `json:"copy"`
+	BookTitle  string        `json:"book_title"`
+	CallNumber string        `json:"call_number"`
+	Loan       *loanResponse `json:"loan"`
 }
 
 // Search queries the catalogue (REQ-028..035).

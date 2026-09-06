@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -401,6 +403,70 @@ func (r *CatalogueRepo) FindCopy(ctx context.Context, id uuid.UUID) (domain.Copy
 	err := r.db.QueryRow(ctx, q, id).Scan(&c.ID, &c.BookID, &c.AccessionNumber,
 		&c.LoanPolicy, &c.Status, &c.AcquiredAt, &c.Notes)
 	return c, translate(err)
+}
+
+// CopyAtDesk is one physical volume as the circulation desk needs to see it:
+// the volume, what it is a copy of, and whoever currently has it.
+//
+// The desk works from the barcode on the book and nothing else. Both desk
+// screens begin the same way, so both begin with this one read rather than
+// making the browser stitch three requests together and guess at the join.
+type CopyAtDesk struct {
+	Copy       domain.Copy `json:"copy"`
+	BookTitle  string      `json:"book_title"`
+	CallNumber string      `json:"call_number"`
+
+	// The open loan, when the copy is out. Nil when it is on the shelf, which
+	// is the difference between "this can be issued" and "this can be taken
+	// back", and the only thing either screen has to decide.
+	Loan *domain.Loan `json:"loan"`
+}
+
+// FindCopyByAccession resolves the number printed on the volume.
+//
+// The accession number is unique across the whole collection (DOM-002), which
+// is what makes it usable as the desk's only input. The call number is not: a
+// title's five copies share one.
+func (r *CatalogueRepo) FindCopyByAccession(ctx context.Context, accession string) (CopyAtDesk, error) {
+	const q = `
+		SELECT c.id, c.book_id, c.accession_number, c.loan_policy, c.status,
+		       c.acquired_at, coalesce(c.notes,''),
+		       b.title, b.call_number,
+		       l.id, l.user_id, l.borrowed_at, l.due_at, u.full_name
+		  FROM copies c
+		  JOIN books b ON b.id = c.book_id
+		  -- At most one row can match: a partial unique index on
+		  -- loans(copy_id) WHERE returned_at IS NULL makes a second open loan
+		  -- for a copy unstorable.
+		  LEFT JOIN loans l ON l.copy_id = c.id AND l.returned_at IS NULL
+		  LEFT JOIN users u ON u.id = l.user_id
+		 WHERE upper(trim(c.accession_number)) = upper(trim($1))`
+
+	var d CopyAtDesk
+	var loanID, memberID *uuid.UUID
+	var borrowedAt, dueAt *time.Time
+	var memberName *string
+
+	err := r.db.QueryRow(ctx, q, accession).Scan(
+		&d.Copy.ID, &d.Copy.BookID, &d.Copy.AccessionNumber, &d.Copy.LoanPolicy,
+		&d.Copy.Status, &d.Copy.AcquiredAt, &d.Copy.Notes,
+		&d.BookTitle, &d.CallNumber,
+		&loanID, &memberID, &borrowedAt, &dueAt, &memberName)
+	if err != nil {
+		return CopyAtDesk{}, translate(err)
+	}
+
+	if loanID != nil {
+		d.Loan = &domain.Loan{
+			ID: *loanID, CopyID: d.Copy.ID, UserID: *memberID,
+			BorrowedAt: *borrowedAt, DueAt: *dueAt,
+			BookTitle: d.BookTitle, AccessionNumber: d.Copy.AccessionNumber,
+		}
+		if memberName != nil {
+			d.Loan.MemberName = *memberName
+		}
+	}
+	return d, nil
 }
 
 // SetCopyStatusClosingLoan records a copy as lost or damaged while it was out,

@@ -450,6 +450,54 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /copies/lookup:
+    get:
+      tags: [Circulation]
+      summary: What is this book in my hand?
+      description: |
+        Resolves the **accession number** printed on a volume, which is the
+        only thing the circulation desk holds when a reader walks up.
+
+        Both desk screens begin here, and the answer tells them apart: a copy
+        that comes back carrying an open `loan` is one to receive, and a copy
+        with `loan: null` is one to issue.
+
+        The accession number is unique across the whole collection, which is
+        what makes it usable as a single input. The call number is not: five
+        copies of a title share one.
+
+        **Staff only.** The reply names the member currently holding the copy.
+      parameters:
+        - in: query
+          name: accession
+          required: true
+          schema: { type: string }
+          example: HOL-748211
+      responses:
+        "200":
+          description: The copy, what it is a copy of, and who has it
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      copy: { $ref: '#/components/schemas/Copy' }
+                      book_title: { type: string }
+                      call_number: { type: string }
+                      loan:
+                        nullable: true
+                        allOf: [{ $ref: '#/components/schemas/Loan' }]
+                        description: Null when the copy is on the shelf.
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404":
+          description: No copy carries that accession number
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /copies/{id}:
     patch:
       tags: [Inventory]

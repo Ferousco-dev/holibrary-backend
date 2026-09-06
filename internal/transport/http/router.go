@@ -137,6 +137,8 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	mux.Handle("POST /api/v1/books/{id}/archive", staff(h.Catalogue.Archive))
 	mux.Handle("POST /api/v1/books/{id}/copies", staff(h.Catalogue.AddCopy))
 	mux.Handle("PATCH /api/v1/copies/{id}", staff(h.Catalogue.UpdateCopy))
+	// Staff only: the answer names whoever is holding the copy.
+	mux.Handle("GET /api/v1/copies/lookup", staff(h.Catalogue.CopyAtDesk))
 
 	// Borrowing is recorded by staff at the desk. A member cannot issue a book
 	// to themselves here any more than they could in the building (REQ-041).
