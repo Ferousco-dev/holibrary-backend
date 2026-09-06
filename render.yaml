@@ -49,6 +49,8 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
 
       - key: MAIL_FROM
         value: holibrary@appmd.dev
