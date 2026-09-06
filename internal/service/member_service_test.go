@@ -25,6 +25,21 @@ func (f *fakeMemberStore) Create(_ context.Context, p postgres.CreateUserParams)
 	f.created = append(f.created, p)
 	return domain.User{ID: uuid.New(), Identifier: p.Identifier, FullName: p.FullName}, nil
 }
+
+// The fake's conflicts map stands in for the roll a dry run would collide
+// with, so a preview in a test sees the same duplicates a real one would.
+func (f *fakeMemberStore) ExistingIdentifiers(_ context.Context, ids []string) (map[string]bool, error) {
+	found := map[string]bool{}
+	for _, id := range ids {
+		for conflicting := range f.conflicts {
+			if strings.EqualFold(conflicting, id) {
+				found[strings.ToLower(strings.TrimSpace(id))] = true
+			}
+		}
+	}
+	return found, nil
+}
+
 func (f *fakeMemberStore) List(context.Context, string, int, int) ([]domain.User, int, error) {
 	return nil, 0, nil
 }
@@ -203,5 +218,32 @@ func TestLibrarianCannotCreateStaffAccounts(t *testing.T) {
 		FirstName: "New", LastName: "Librarian", Role: domain.RoleLibrarian,
 	}); err != nil {
 		t.Errorf("an administrator may create a librarian: %v", err)
+	}
+}
+
+// A preview that cannot see the existing roll is worse than no preview: it
+// tells a librarian eight hundred accounts are ready and then creates four.
+func TestDryRunCountsMembersAlreadyOnTheRoll(t *testing.T) {
+	store := &fakeMemberStore{conflicts: map[string]bool{"SEN/2025/101": true}}
+	svc := service.NewMemberService(store, nil)
+
+	const roll = "student_id,first_name,last_name,email\n" +
+		"SEN/2025/101,Amaka,Nwosu,amaka@oauife.edu.ng\n" +
+		"SEN/2025/102,Tunde,Bakare,tunde@oauife.edu.ng\n"
+
+	result, err := svc.ImportCSV(context.Background(), domain.RoleLibrarian, uuid.Nil,
+		strings.NewReader(roll), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Duplicate != 1 {
+		t.Errorf("duplicate = %d, want 1: the first row is already registered", result.Duplicate)
+	}
+	if result.Valid != 1 {
+		t.Errorf("valid = %d, want 1: only the second row is new", result.Valid)
+	}
+	if len(store.created) != 0 {
+		t.Errorf("a dry run wrote %d members; it must write none", len(store.created))
 	}
 }

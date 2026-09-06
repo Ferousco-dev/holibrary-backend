@@ -139,6 +139,43 @@ func (r *UserRepo) Create(ctx context.Context, p CreateUserParams) (domain.User,
 	return u, nil
 }
 
+// ExistingIdentifiers reports which of these are already on the roll.
+//
+// One query for the whole file. A thousand-row import asking row by row would
+// be a thousand round trips to Ohio, which at ~130ms each is over two minutes
+// of waiting to render a preview.
+//
+// Compared case-insensitively, because a roll exported from one spreadsheet
+// writes sen/2025/001 and from another SEN/2025/001, and they are the same
+// student either way.
+func (r *UserRepo) ExistingIdentifiers(ctx context.Context, identifiers []string) (map[string]bool, error) {
+	found := map[string]bool{}
+	if len(identifiers) == 0 {
+		return found, nil
+	}
+
+	lowered := make([]string, 0, len(identifiers))
+	for _, id := range identifiers {
+		lowered = append(lowered, strings.ToLower(strings.TrimSpace(id)))
+	}
+
+	rows, err := r.db.Query(ctx,
+		`SELECT lower(identifier) FROM users WHERE lower(identifier) = ANY($1)`, lowered)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, translate(err)
+		}
+		found[id] = true
+	}
+	return found, rows.Err()
+}
+
 // List returns members matching an optional search term, newest first.
 func (r *UserRepo) List(ctx context.Context, search string, limit, offset int) ([]domain.User, int, error) {
 	const q = `SELECT ` + userColumns + `, count(*) OVER() AS total

@@ -21,6 +21,7 @@ type MemberStore interface {
 	List(ctx context.Context, search string, limit, offset int) ([]domain.User, int, error)
 	FindByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus, staffID uuid.UUID) error
+	ExistingIdentifiers(ctx context.Context, identifiers []string) (map[string]bool, error)
 }
 
 type MemberService struct {
@@ -240,9 +241,13 @@ func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, actorI
 	}
 
 	result := ImportResult{DryRun: dryRun}
-	// Duplicates within the file itself are caught here; duplicates against the
-	// database are caught by the unique constraint on insert.
+	// Duplicates within the file itself are caught here. Duplicates against the
+	// database are caught by the unique constraint on insert during a real run,
+	// but a dry run never inserts, so it has to ask. pending records where each
+	// dry-run row landed in result.Rows, so one query at the end can settle them
+	// all rather than one query per row.
 	seen := make(map[string]int)
+	pending := map[int]string{}
 	line := 1
 
 	for {
@@ -307,8 +312,7 @@ func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, actorI
 		seen[strings.ToLower(params.Identifier)] = line
 
 		if dryRun {
-			result.Valid++
-			row.Status = "valid"
+			pending[len(result.Rows)] = params.Identifier
 			result.Rows = append(result.Rows, row)
 			continue
 		}
@@ -331,6 +335,34 @@ func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, actorI
 		}
 		result.Rows = append(result.Rows, row)
 	}
+
+	// A dry run has to ask the database what it would have collided with,
+	// because it never inserts and so never trips the unique constraint that
+	// catches this on a real run. Without it a librarian previewing last
+	// term's roll is told eight hundred accounts are ready, and creates four.
+	if dryRun && len(pending) > 0 {
+		wanted := make([]string, 0, len(pending))
+		for _, identifier := range pending {
+			wanted = append(wanted, identifier)
+		}
+
+		taken, err := s.members.ExistingIdentifiers(ctx, wanted)
+		if err != nil {
+			return ImportResult{}, err
+		}
+
+		for at, identifier := range pending {
+			if taken[strings.ToLower(strings.TrimSpace(identifier))] {
+				result.Duplicate++
+				result.Rows[at].Status = "duplicate"
+				result.Rows[at].Detail = "already registered"
+				continue
+			}
+			result.Valid++
+			result.Rows[at].Status = "valid"
+		}
+	}
+
 	return result, nil
 }
 
