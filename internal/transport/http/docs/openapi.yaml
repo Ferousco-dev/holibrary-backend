@@ -30,10 +30,9 @@ info:
     ## Membership begins in the building
 
     There is **no registration endpoint**, by design. At HOL a user presents an
-    identity card and signs a register; a librarian then creates the account and
-    hands over a temporary password. That temporary password is **not a working
-    credential**, the account can call `/auth/change-password` and `/auth/logout`
-    and nothing else until the password is changed.
+    identity card and signs a register; a librarian then creates the account.
+    The member receives a single-use password-setup link by email, and no
+    password is sent or returned by the API.
 
     ## Time
 
@@ -943,9 +942,8 @@ paths:
       description: |
         Performed at the desk after the applicant presents their identity card.
 
-        A **temporary password is returned once**, for the librarian to hand
-        over. It is not stored in readable form and cannot be retrieved again,
-        and the account is confined to changing it at first sign-in.
+        The member receives a single-use password-setup link by email. No
+        password or setup token is returned in the API response.
 
         **Role.** A librarian may create members only. Creating a `librarian` or
         `admin` account requires an administrator, the role is checked against
@@ -967,8 +965,7 @@ paths:
                     type: object
                     properties:
                       member: { $ref: '#/components/schemas/User' }
-                      temporary_password: { type: string }
-                      note: { type: string }
+                      invitation_email_queued: { type: boolean }
         "403":
           description: Not permitted to create an account of that role (`FORBIDDEN`).
           content:
@@ -1454,7 +1451,7 @@ components:
               identifier: { type: string }
               status: { type: string, enum: [valid, created, duplicate, invalid] }
               detail: { type: string }
-              temporary_password: { type: string, description: Present only for rows actually created. }
+              invitation_email_queued: { type: boolean, description: Whether the setup email was queued. }
 
     Reservation:
       type: object

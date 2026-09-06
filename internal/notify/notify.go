@@ -73,25 +73,37 @@ func Render(m Message) Rendered {
 	title := valueOr(m.Payload, "title", "your book")
 
 	switch m.Template {
+	case "account_setup":
+		token := valueOr(m.Payload, "token", "")
+		link := FrontendURL + "/reset-password?token=" + url.QueryEscape(token)
+		return Rendered{
+			Subject: "Set your Hezekiah Oluwasanmi Library password",
+			Body: fmt.Sprintf(
+				"Dear %s,\n\nYour library account is ready. Use this link to choose your password:\n\n    %s\n\n"+
+					"This link is single-use and expires in 7 days. If it expires, please contact the library.\n\n"+
+					"Hezekiah Oluwasanmi Library", name, link),
+			HTML: emailHTML("Set your library password",
+				fmt.Sprintf("Dear %s,", name),
+				"<p>Your library account is ready. Use the link below to choose your password.</p>",
+				button(link, "Set your password"),
+				"<p style=\"color:#5f6b62;font-size:13px\">This link is single-use and expires in 7 days. If it expires, please contact the library.</p>"),
+		}
+
 	case "welcome":
 		return Rendered{
 			Subject: "Your Hezekiah Oluwasanmi Library account",
 			Body: fmt.Sprintf(
 				"Dear %s,\n\nYour library account is ready. Sign in with your "+
-					"matriculation number or your university email and the "+
-					"temporary password you were given at the desk.\n\n"+
-					"You will be asked to choose your own password the first "+
-					"time you sign in.\n\n%s\n\nHezekiah Oluwasanmi Library",
+					"matriculation number or your university email. Please contact "+
+					"the library to receive a password setup link.\n\n%s\n\nHezekiah Oluwasanmi Library",
 				name, FrontendURL),
 			HTML: emailHTML("Your library account",
 				fmt.Sprintf("Dear %s,", name),
-				"<p>Your library account is ready. Sign in with your matriculation "+
-					"number or your university email, and the temporary password you "+
-					"were given at the desk.</p>",
+				"<p>Your library account is ready. Please contact the library to receive "+
+					"a password setup link.</p>",
 				button(FrontendURL, "Sign in"),
-				"<p style=\"color:#5f6b62;font-size:13px\">You will be asked to choose "+
-					"your own password the first time you sign in. Until you do, that is "+
-					"the only thing your account can do.</p>"),
+				"<p style=\"color:#5f6b62;font-size:13px\">New accounts use a single-use "+
+					"password setup link rather than a password sent by email.</p>"),
 		}
 
 	case "password_reset":

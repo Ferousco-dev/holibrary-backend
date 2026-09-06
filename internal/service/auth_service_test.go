@@ -76,6 +76,8 @@ type fakeTokens struct {
 	revokedAllFor uuid.UUID
 	savedReset    string
 	resetOwner    uuid.UUID
+	resetExpires  time.Time
+	resetUsed     bool
 	resetErr      error
 }
 
@@ -105,11 +107,15 @@ func (f *fakeTokens) RevokeAllRefreshTokens(_ context.Context, u uuid.UUID) erro
 	f.revokedAllFor = u
 	return nil
 }
-func (f *fakeTokens) SavePasswordReset(_ context.Context, u uuid.UUID, hash string, _ time.Time) error {
-	f.savedReset, f.resetOwner = hash, u
+func (f *fakeTokens) SavePasswordReset(_ context.Context, u uuid.UUID, hash string, expires time.Time) error {
+	f.savedReset, f.resetOwner, f.resetExpires = hash, u, expires
 	return nil
 }
 func (f *fakeTokens) ConsumePasswordReset(_ context.Context, _ string) (uuid.UUID, error) {
+	if f.resetUsed {
+		return uuid.Nil, domain.ErrTokenInvalid
+	}
+	f.resetUsed = true
 	return f.resetOwner, f.resetErr
 }
 

@@ -64,8 +64,8 @@ type createMemberRequest struct {
 
 // Create registers a member at the desk (REQ-009).
 //
-// The temporary password is returned once, for the librarian to hand over on
-// paper. It is not stored in readable form and cannot be retrieved again.
+// The member receives a one-time password-setup email; no credential is
+// returned to the creating staff member.
 func (h *MemberHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req createMemberRequest
 	if !decode(w, r, &req) {
@@ -73,7 +73,7 @@ func (h *MemberHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	actorID, _ := middleware.UserID(r.Context())
-	user, temporary, err := h.members.Create(r.Context(), middleware.Role(r.Context()), actorID, service.NewMemberParams{
+	user, _, err := h.members.Create(r.Context(), middleware.Role(r.Context()), actorID, service.NewMemberParams{
 		Identifier:  req.Identifier,
 		Email:       req.Email,
 		FullName:    req.FullName,
@@ -102,9 +102,8 @@ func (h *MemberHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusCreated, map[string]any{
-		"member":             toUserResponse(user),
-		"temporary_password": temporary,
-		"note":               "Give this password to the member. They must change it at first sign-in.",
+		"member":                  toUserResponse(user),
+		"invitation_email_queued": true,
 	}, nil)
 }
 

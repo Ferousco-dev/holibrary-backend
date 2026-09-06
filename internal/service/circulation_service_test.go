@@ -57,10 +57,14 @@ func (f *fakeMembers) FindByID(context.Context, uuid.UUID) (domain.User, error) 
 	return f.user, f.err
 }
 
-type fakeNotifier struct{ queued []string }
+type fakeNotifier struct {
+	queued   []string
+	payloads []map[string]any
+}
 
-func (f *fakeNotifier) Queue(_ context.Context, _ uuid.UUID, _, template string, _ map[string]any) error {
+func (f *fakeNotifier) Queue(_ context.Context, _ uuid.UUID, _, template string, payload map[string]any) error {
 	f.queued = append(f.queued, template)
+	f.payloads = append(f.payloads, payload)
 	return nil
 }
 

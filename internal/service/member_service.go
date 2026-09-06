@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -27,11 +28,20 @@ type MemberStore interface {
 type MemberService struct {
 	members  MemberStore
 	notifier Notifier
+	tokens   TokenStore
 }
 
-func NewMemberService(m MemberStore, n Notifier) *MemberService {
-	return &MemberService{members: m, notifier: n}
+func NewMemberService(m MemberStore, n Notifier, tokens ...TokenStore) *MemberService {
+	var tokenStore TokenStore
+	if len(tokens) > 0 {
+		tokenStore = tokens[0]
+	}
+	return &MemberService{members: m, notifier: n, tokens: tokenStore}
 }
+
+// AccountSetupTTL gives a new member enough time to act without weakening the
+// shorter forgotten-password reset window.
+const AccountSetupTTL = 7 * 24 * time.Hour
 
 // NewMemberParams is what the librarian types in after the applicant has
 // presented their identity card at the desk (DOM-006).
@@ -87,8 +97,8 @@ func RolesCreatableBy(actor domain.Role) map[domain.Role]bool {
 // the building, which is both how HOL works and the reason an attacker cannot
 // mint themselves an account (DEC-006, REQ-002, REQ-009).
 //
-// The temporary password is returned to the librarian to hand over, and the
-// account is flagged to force a change at first login (REQ-007).
+// New accounts receive a one-time setup link. The password hash is random and
+// never leaves this method; the account remains restricted until setup.
 func (s *MemberService) Create(ctx context.Context, actor domain.Role, actorID uuid.UUID, p NewMemberParams) (domain.User, string, error) {
 	if err := validateNewMember(p); err != nil {
 		return domain.User{}, "", err
@@ -104,15 +114,14 @@ func (s *MemberService) Create(ctx context.Context, actor domain.Role, actorID u
 		return domain.User{}, "", domain.ErrForbidden
 	}
 
-	// A random temporary password, never a predictable one derived from the
-	// matriculation number: that pattern would let anyone guess any new account.
-	temporary, _, err := auth.NewOpaqueToken()
+	// The account starts with a random unusable password. It is never returned
+	// or sent by email; the member sets the real password through the invitation.
+	bootstrap, _, err := auth.NewOpaqueToken()
 	if err != nil {
 		return domain.User{}, "", err
 	}
-	temporary = temporary[:12]
 
-	hash, err := auth.HashPassword(temporary)
+	hash, err := auth.HashPassword(bootstrap)
 	if err != nil {
 		return domain.User{}, "", err
 	}
@@ -144,11 +153,24 @@ func (s *MemberService) Create(ctx context.Context, actor domain.Role, actorID u
 		return domain.User{}, "", err
 	}
 
-	_ = s.notifier.Queue(ctx, user.ID, "email", "welcome", map[string]any{
-		"full_name":  user.FullName,
-		"identifier": user.Identifier,
-	})
-	return user, temporary, nil
+	setupToken, setupHash, err := auth.NewOpaqueToken()
+	if err != nil {
+		return domain.User{}, "", err
+	}
+	if s.tokens != nil {
+		if err := s.tokens.SavePasswordReset(ctx, user.ID, setupHash, time.Now().UTC().Add(AccountSetupTTL)); err != nil {
+			return domain.User{}, "", err
+		}
+	}
+	if s.notifier != nil {
+		if err := s.notifier.Queue(ctx, user.ID, "email", "account_setup", map[string]any{
+			"full_name": user.FullName,
+			"token":     setupToken,
+		}); err != nil {
+			return domain.User{}, "", err
+		}
+	}
+	return user, "", nil
 }
 
 func validateNewMember(p NewMemberParams) error {
@@ -174,11 +196,11 @@ func validateNewMember(p NewMemberParams) error {
 
 // ImportRow is the outcome of one line of a CSV import.
 type ImportRow struct {
-	Line       int    `json:"line"`
-	Identifier string `json:"identifier"`
-	Status     string `json:"status"` // valid | created | duplicate | invalid
-	Detail     string `json:"detail,omitempty"`
-	TempPass   string `json:"temporary_password,omitempty"`
+	Line                  int    `json:"line"`
+	Identifier            string `json:"identifier"`
+	Status                string `json:"status"` // valid | created | duplicate | invalid
+	Detail                string `json:"detail,omitempty"`
+	InvitationEmailQueued bool   `json:"invitation_email_queued,omitempty"`
 }
 
 // ImportResult summarises a whole file.
@@ -318,7 +340,7 @@ func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, actorI
 		}
 
 		// Imported rows are always members. A CSV can never introduce staff.
-		user, temporary, err := s.Create(ctx, actor, actorID, params)
+		user, _, err := s.Create(ctx, actor, actorID, params)
 		switch {
 		case errors.Is(err, domain.ErrConflict):
 			// Re-importing last session's roll is routine, not a failure.
@@ -330,7 +352,8 @@ func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, actorI
 		default:
 			result.Created++
 			result.Valid++
-			row.Status, row.TempPass = "created", temporary
+			row.Status = "created"
+			row.InvitationEmailQueued = s.notifier != nil
 			row.Identifier = user.Identifier
 		}
 		result.Rows = append(result.Rows, row)

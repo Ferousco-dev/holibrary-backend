@@ -211,7 +211,7 @@ func run() error {
 	authService := service.NewAuthService(users, tokens, outbox, issuer, limiter)
 	catalogueService := service.NewCatalogueService(catalogue)
 	circulationService := service.NewCirculationService(circulation, users, outbox)
-	memberService := service.NewMemberService(users, outbox)
+	memberService := service.NewMemberService(users, outbox, tokens)
 	reservationService := service.NewReservationService(reservations, outbox)
 
 	// Bookmarks: a member's own list of titles to come back to. It touches no

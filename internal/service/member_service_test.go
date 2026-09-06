@@ -2,12 +2,15 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
 	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
 	"github.com/Ferousco-dev/holibrary-backend/internal/repository/postgres"
 	"github.com/Ferousco-dev/holibrary-backend/internal/service"
@@ -119,11 +122,18 @@ func TestImportCSVCommitsGoodRowsDespiteBadOnes(t *testing.T) {
 		t.Errorf("Level = %q, want 200", got)
 	}
 
-	// Every created row is reported with the temporary password to hand over.
+	// Created rows report only whether the invitation was queued.
 	for _, row := range result.Rows {
-		if row.Status == "created" && row.TempPass == "" {
-			t.Errorf("line %d was created without a temporary password to give the member", row.Line)
+		if row.Status == "created" && !row.InvitationEmailQueued {
+			t.Errorf("line %d was created without a queued invitation", row.Line)
 		}
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "temporary_password") {
+		t.Error("CSV results must not contain temporary passwords")
 	}
 }
 
@@ -161,7 +171,7 @@ func TestImportCSVRejectsUnusableHeader(t *testing.T) {
 
 // A new member never receives a password derived from their matriculation
 // number: that pattern would let anyone sign in as any new student.
-func TestCreateIssuesUnpredictableTemporaryPassword(t *testing.T) {
+func TestCreateDoesNotReturnAPassword(t *testing.T) {
 	store := &fakeMemberStore{}
 	svc := service.NewMemberService(store, &fakeNotifier{})
 
@@ -180,14 +190,49 @@ func TestCreateIssuesUnpredictableTemporaryPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if first == second {
-		t.Error("two members must not receive the same temporary password")
+	if first != "" || second != "" {
+		t.Error("member creation must not return readable passwords")
 	}
-	if strings.Contains(first, "SWE") || strings.Contains(first, "2025") {
-		t.Error("the temporary password must not be derived from the matriculation number")
+}
+
+func TestCreateStoresHashedSevenDayInvitationAndQueuesOneEmail(t *testing.T) {
+	store := &fakeMemberStore{}
+	notifier := &fakeNotifier{}
+	tokens := &fakeTokens{}
+	svc := service.NewMemberService(store, notifier, tokens)
+
+	user, returned, err := svc.Create(context.Background(), domain.RoleLibrarian, uuid.Nil, service.NewMemberParams{
+		Identifier: "SWE/2025/020", Email: "invite@oauife.edu.ng",
+		FirstName: "Invite", LastName: "Student", Category: domain.CategoryUndergraduate,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(first) < 10 {
-		t.Errorf("temporary password is too short: %d characters", len(first))
+	if returned != "" {
+		t.Fatal("creation must not return a readable password")
+	}
+	if len(notifier.queued) != 1 || notifier.queued[0] != "account_setup" {
+		t.Fatalf("queued notifications = %v, want one account_setup", notifier.queued)
+	}
+	raw, ok := notifier.payloads[0]["token"].(string)
+	if !ok || raw == "" {
+		t.Fatal("invitation email must receive a raw token for its link")
+	}
+	if tokens.savedReset != auth.HashToken(raw) || tokens.savedReset == raw {
+		t.Fatal("only the invitation token hash may be stored")
+	}
+	if tokens.resetOwner != user.ID {
+		t.Fatal("invitation token belongs to the created user")
+	}
+	remaining := time.Until(tokens.resetExpires)
+	if remaining < 6*24*time.Hour || remaining > 7*24*time.Hour {
+		t.Fatalf("invitation expiry = %s, want about seven days", remaining)
+	}
+	if _, err := tokens.ConsumePasswordReset(context.Background(), tokens.savedReset); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tokens.ConsumePasswordReset(context.Background(), tokens.savedReset); !errors.Is(err, domain.ErrTokenInvalid) {
+		t.Fatalf("second invitation use = %v, want ErrTokenInvalid", err)
 	}
 }
 

@@ -32,6 +32,22 @@ func TestPasswordResetCarriesALink(t *testing.T) {
 	}
 }
 
+func TestAccountSetupCarriesSingleUseSevenDayLink(t *testing.T) {
+	SetFrontendURL("https://library.appmd.dev")
+	r := Render(Message{Template: "account_setup", Payload: map[string]any{
+		"full_name": "Ada Obi", "token": "abc123",
+	}})
+	for _, want := range []string{
+		"https://library.appmd.dev/reset-password?token=abc123",
+		"library account is ready", "choose your password",
+		"single-use", "expires in 7 days", "contact the library",
+	} {
+		if !strings.Contains(strings.ToLower(r.Body+" "+r.HTML), strings.ToLower(want)) {
+			t.Errorf("setup email missing %q", want)
+		}
+	}
+}
+
 // A token is a URL parameter, so it must be escaped. Concatenation works today
 // because the tokens are base64url, and would break silently the day that
 // changes.
@@ -71,7 +87,7 @@ func TestNamesAreEscapedInHTML(t *testing.T) {
 // clients.
 func TestMemberFacingTemplatesHaveBothParts(t *testing.T) {
 	for _, tmpl := range []string{
-		"welcome", "password_reset", "loan_due_soon", "loan_overdue", "reservation_ready",
+		"account_setup", "welcome", "password_reset", "loan_due_soon", "loan_overdue", "reservation_ready",
 	} {
 		r := Render(Message{
 			Template: tmpl,

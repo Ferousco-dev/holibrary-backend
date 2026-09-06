@@ -153,9 +153,9 @@ Student registers physically at the library
         ↓
 Librarian creates the account (singly, or by CSV import)
         ↓
-Temporary password handed over
+Password setup link emailed to the member
         ↓
-First sign-in forces a password change
+Member chooses a password through the single-use link
         ↓
 Student signs in with matric number or email + password
 ```
