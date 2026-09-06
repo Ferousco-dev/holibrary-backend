@@ -81,6 +81,41 @@ security:
   - bearerAuth: []
 
 paths:
+  /healthz:
+    get:
+      tags: [System]
+      summary: Health check
+      description: Returns service status and verifies that the backend can reach its database.
+      security: []
+      servers:
+        - url: https://api.library.appmd.dev
+          description: Production
+        - url: https://holibrary-api.onrender.com
+          description: Production, direct to the origin
+        - url: http://localhost:8080
+          description: Local development
+      responses:
+        "200":
+          description: Service and database are reachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [status, service, database]
+                    properties:
+                      status: { type: string, example: ok }
+                      service: { type: string, example: holibrary-backend }
+                      database: { type: string, example: reachable }
+        "503":
+          description: The database is unreachable.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /auth/login:
     post:
       tags: [Authentication]

@@ -75,6 +75,12 @@ func TestSpecDocumentsNoPhantomRoutes(t *testing.T) {
 	routerText := string(router)
 
 	for _, m := range pathKey.FindAllStringSubmatch(string(spec), -1) {
+		if m[1] == "/healthz" {
+			if !strings.Contains(routerText, `GET /healthz"`) {
+				t.Errorf("the specification documents %s, but no route serves it", m[1])
+			}
+			continue
+		}
 		// Route patterns carry a method prefix, e.g. "POST /api/v1/loans".
 		if !strings.Contains(routerText, " /api/v1"+m[1]+`"`) {
 			t.Errorf("the specification documents %s, but no route serves it", m[1])
