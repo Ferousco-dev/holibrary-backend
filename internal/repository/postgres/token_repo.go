@@ -100,3 +100,10 @@ func (r *TokenRepo) ConsumePasswordReset(ctx context.Context, hash string) (uuid
 	}
 	return userID, nil
 }
+
+func (r *TokenRepo) InvalidatePasswordResets(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE password_resets SET used_at = coalesce(used_at, now())
+		 WHERE user_id = $1 AND used_at IS NULL`, userID)
+	return translate(err)
+}

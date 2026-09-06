@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,14 +22,52 @@ type OutboxRepo struct{ db *pgxpool.Pool }
 func NewOutboxRepo(db *pgxpool.Pool) *OutboxRepo { return &OutboxRepo{db: db} }
 
 func (r *OutboxRepo) Queue(ctx context.Context, userID uuid.UUID, channel, template string, payload map[string]any) error {
+	_, err := r.QueueTracked(ctx, userID, channel, template, payload)
+	return err
+}
+
+// QueueTracked is the invitation-aware form of Queue. The outbox row and its
+// delivery record share a transaction, so admin reporting never shows a
+// queued invitation without the message that will deliver it.
+func (r *OutboxRepo) QueueTracked(ctx context.Context, userID uuid.UUID, channel, template string, payload map[string]any) (uuid.UUID, error) {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
-	_, err = r.db.Exec(ctx,
-		`INSERT INTO outbox (user_id, channel, template, payload) VALUES ($1,$2,$3,$4)`,
-		userID, channel, template, encoded)
-	return translate(err)
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, translate(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	var outboxID uuid.UUID
+	err = tx.QueryRow(ctx,
+		`INSERT INTO outbox (user_id, channel, template, payload) VALUES ($1,$2,$3,$4) RETURNING id`,
+		userID, channel, template, encoded).Scan(&outboxID)
+	if err != nil {
+		return uuid.Nil, translate(err)
+	}
+	if template == "account_setup" {
+		var email string
+		if err := tx.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, userID).Scan(&email); err != nil {
+			return uuid.Nil, translate(err)
+		}
+		var batchID *uuid.UUID
+		if raw, ok := payload["batch_id"].(string); ok && strings.TrimSpace(raw) != "" {
+			parsed, parseErr := uuid.Parse(raw)
+			if parseErr != nil {
+				return uuid.Nil, parseErr
+			}
+			batchID = &parsed
+		}
+		if err := (&InvitationRepo{db: r.db}).CreateForOutbox(ctx, tx, userID, outboxID, email, batchID); err != nil {
+			return uuid.Nil, translate(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, translate(err)
+	}
+	return outboxID, nil
 }
 
 // Pending returns messages awaiting delivery, oldest first.
@@ -134,7 +173,10 @@ func (r *OutboxRepo) MarkSuperseded(ctx context.Context, id uuid.UUID, reason st
 	_, err := r.db.Exec(ctx,
 		`UPDATE outbox SET status='superseded', sent_at=now(), last_error=$2 WHERE id=$1`,
 		id, reason)
-	return translate(err)
+	if err != nil {
+		return translate(err)
+	}
+	return (&InvitationRepo{db: r.db}).MarkSuperseded(ctx, id, reason)
 }
 
 // DeviceTokens returns a member's live push registrations.
@@ -216,7 +258,15 @@ func (r *OutboxRepo) RegisterDevice(ctx context.Context, userID uuid.UUID, token
 func (r *OutboxRepo) MarkSent(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.Exec(ctx,
 		`UPDATE outbox SET status='sent', sent_at=now() WHERE id=$1`, id)
+	if err != nil {
+		return translate(err)
+	}
+	_, err = r.db.Exec(ctx, `UPDATE invitation_deliveries SET status = 'sent', sent_at = coalesce(sent_at, now()) WHERE outbox_id = $1 AND status = 'queued'`, id)
 	return translate(err)
+}
+
+func (r *OutboxRepo) UpdateProviderID(ctx context.Context, outboxID uuid.UUID, providerID string) error {
+	return (&InvitationRepo{db: r.db}).UpdateProviderID(ctx, outboxID, providerID)
 }
 
 // MarkFailed records the attempt and the reason. Pending() stops retrying after
@@ -228,5 +278,12 @@ func (r *OutboxRepo) MarkFailed(ctx context.Context, id uuid.UUID, reason string
 		       last_error = $2,
 		       status = CASE WHEN attempts + 1 >= 5 THEN 'failed' ELSE 'pending' END
 		 WHERE id = $1`, id, reason)
-	return translate(err)
+	if err != nil {
+		return translate(err)
+	}
+	return (&InvitationRepo{db: r.db}).MarkFailed(ctx, id, reason)
+}
+
+func (r *OutboxRepo) InvalidateInvitations(ctx context.Context, memberID uuid.UUID) error {
+	return (&InvitationRepo{db: r.db}).InvalidateForMember(ctx, memberID)
 }

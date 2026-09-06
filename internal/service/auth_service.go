@@ -39,6 +39,7 @@ type TokenStore interface {
 	RevokeAllRefreshTokens(ctx context.Context, userID uuid.UUID) error
 	SavePasswordReset(ctx context.Context, userID uuid.UUID, hash string, expires time.Time) error
 	ConsumePasswordReset(ctx context.Context, hash string) (uuid.UUID, error)
+	InvalidatePasswordResets(ctx context.Context, userID uuid.UUID) error
 }
 
 // Notifier queues a message. Delivery happens elsewhere, asynchronously, so a

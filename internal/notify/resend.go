@@ -21,6 +21,12 @@ type Resend struct {
 	client *http.Client
 }
 
+// ResultSender is implemented by providers that return a message identifier
+// which can later be matched to delivery webhooks.
+type ResultSender interface {
+	SendWithResult(ctx context.Context, m Message) (string, error)
+}
+
 func NewResend(apiKey, from string) *Resend {
 	return &Resend{
 		apiKey: apiKey,
@@ -39,6 +45,11 @@ func (r *Resend) Channel() string { return "email" }
 func (r *Resend) Configured() bool { return r.apiKey != "" }
 
 func (r *Resend) Send(ctx context.Context, m Message) error {
+	_, err := r.SendWithResult(ctx, m)
+	return err
+}
+
+func (r *Resend) SendWithResult(ctx context.Context, m Message) (string, error) {
 	rendered := Render(m)
 
 	payload := map[string]any{
@@ -56,13 +67,13 @@ func (r *Resend) Send(ctx context.Context, m Message) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("%w: encoding message: %v", ErrPermanent, err)
+		return "", fmt.Errorf("%w: encoding message: %v", ErrPermanent, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://api.resend.com/emails", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+r.apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -70,13 +81,19 @@ func (r *Resend) Send(ctx context.Context, m Message) error {
 	resp, err := r.client.Do(req)
 	if err != nil {
 		// A network failure is worth retrying; the provider may simply be busy.
-		return fmt.Errorf("calling Resend: %w", err)
+		return "", fmt.Errorf("calling Resend: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return describe("Resend", resp.StatusCode, string(payload))
+		return "", describe("Resend", resp.StatusCode, string(payload))
 	}
-	return nil
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || result.ID == "" {
+		return "", fmt.Errorf("Resend response did not include a message id")
+	}
+	return result.ID, nil
 }

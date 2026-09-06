@@ -30,6 +30,10 @@ type Outbox interface {
 	RevokeDeviceToken(ctx context.Context, token string) error
 }
 
+type providerIDStore interface {
+	UpdateProviderID(ctx context.Context, outboxID uuid.UUID, providerID string) error
+}
+
 // Worker delivers queued notifications.
 type Worker struct {
 	outbox   Outbox
@@ -150,9 +154,23 @@ func (w *Worker) deliver(ctx context.Context, m postgres.PendingMessage) {
 	}
 
 	msg := notify.Message{To: m.Email, Name: m.FullName, Template: m.Template, Payload: m.Payload}
-	if err := sender.Send(ctx, msg); err != nil {
-		w.recordFailure(ctx, m, err)
+	var providerID string
+	var sendErr error
+	if resultSender, ok := sender.(notify.ResultSender); ok {
+		providerID, sendErr = resultSender.SendWithResult(ctx, msg)
+	} else {
+		sendErr = sender.Send(ctx, msg)
+	}
+	if sendErr != nil {
+		w.recordFailure(ctx, m, sendErr)
 		return
+	}
+	if providerID != "" {
+		if tracker, ok := w.outbox.(providerIDStore); ok {
+			if err := tracker.UpdateProviderID(ctx, m.ID, providerID); err != nil {
+				slog.Error("sent but could not store provider message id", "outbox_id", m.ID, "error", err)
+			}
+		}
 	}
 	if err := w.outbox.MarkSent(ctx, m.ID); err != nil {
 		// The message went out but the record did not update. Saying so is

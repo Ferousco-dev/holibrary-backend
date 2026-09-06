@@ -262,6 +262,16 @@ paths:
         "401": { $ref: '#/components/responses/TokenInvalid' }
         "422": { $ref: '#/components/responses/PasswordTooWeak' }
 
+  /webhooks/resend:
+    post:
+      tags: [Webhooks]
+      summary: Receive verified Resend delivery events
+      description: Verifies Svix headers before processing email.sent, email.delivered, email.opened, email.bounced, email.complained, and email.failed events.
+      security: []
+      responses:
+        "204": { description: Event accepted }
+        "401": { description: Invalid webhook signature }
+
   /books:
     get:
       tags: [Catalogue]
@@ -1093,6 +1103,7 @@ paths:
                       members: { type: integer, example: 812 }
                       active_loans: { type: integer, example: 194 }
                       overdue: { type: integer, example: 23 }
+                      invitation_statuses: { type: object, additionalProperties: { type: integer } }
         "403": { $ref: '#/components/responses/Forbidden' }
 
   /admin/audit:
@@ -1118,6 +1129,40 @@ paths:
                     items: { $ref: '#/components/schemas/AuditEntry' }
                   meta: { $ref: '#/components/schemas/Meta' }
         "403": { $ref: '#/components/responses/Forbidden' }
+
+  /admin/invitations:
+    get:
+      tags: [Administration]
+      summary: List invitation delivery statuses
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: batch_id, in: query, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+      responses:
+        "200":
+          description: Invitation delivery records without setup tokens
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/InvitationDelivery' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /admin/members/{id}/invitation:
+    post:
+      tags: [Administration]
+      summary: Resend a member invitation
+      description: Invalidates all previous setup links before queueing a new invitation email.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        "202": { $ref: '#/components/responses/StatusOK' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
 
 components:
   securitySchemes:
@@ -1485,3 +1530,20 @@ components:
         entity_id: { type: string, format: uuid, nullable: true }
         metadata: { type: object }
         created_at: { type: string, format: date-time }
+
+    InvitationDelivery:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        member_id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        outbox_id: { type: string, format: uuid }
+        import_batch_id: { type: string, format: uuid, nullable: true }
+        resend_message_id: { type: string }
+        queued_at: { type: string, format: date-time }
+        sent_at: { type: string, format: date-time, nullable: true }
+        delivered_at: { type: string, format: date-time, nullable: true }
+        opened_at: { type: string, format: date-time, nullable: true }
+        bounced_at: { type: string, format: date-time, nullable: true }
+        failure_reason: { type: string }
+        status: { type: string, enum: [queued, sent, delivered, opened, bounced, complained, failed, superseded] }

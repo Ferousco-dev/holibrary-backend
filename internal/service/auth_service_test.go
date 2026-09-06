@@ -119,6 +119,11 @@ func (f *fakeTokens) ConsumePasswordReset(_ context.Context, _ string) (uuid.UUI
 	return f.resetOwner, f.resetErr
 }
 
+func (f *fakeTokens) InvalidatePasswordResets(_ context.Context, _ uuid.UUID) error {
+	f.resetUsed = true
+	return nil
+}
+
 const testSecret = "a-test-secret-at-least-32-characters"
 
 func newAuth(t *testing.T, u *fakeUsers, tk *fakeTokens, n *fakeNotifier) *service.AuthService {

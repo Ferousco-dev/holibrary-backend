@@ -13,16 +13,17 @@ import (
 
 // Handlers collects everything the router needs.
 type Handlers struct {
-	Auth         *handler.AuthHandler
-	Catalogue    *handler.CatalogueHandler
-	Circulation  *handler.CirculationHandler
-	Members      *handler.MemberHandler
-	Reservations *handler.ReservationHandler
-	Bookmarks    *handler.BookmarkHandler
-	Devices      *handler.DeviceHandler
-	Lookup       *handler.LookupHandler
-	Admin        *handler.AdminHandler
-	Ping         func() error
+	Auth          *handler.AuthHandler
+	Catalogue     *handler.CatalogueHandler
+	Circulation   *handler.CirculationHandler
+	Members       *handler.MemberHandler
+	Reservations  *handler.ReservationHandler
+	Bookmarks     *handler.BookmarkHandler
+	Devices       *handler.DeviceHandler
+	Lookup        *handler.LookupHandler
+	Admin         *handler.AdminHandler
+	ResendWebhook *handler.ResendWebhookHandler
+	Ping          func() error
 }
 
 // Options carries router configuration.
@@ -87,6 +88,9 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	mux.Handle("POST /api/v1/auth/refresh", throttle(http.HandlerFunc(h.Auth.Refresh)))
 	mux.Handle("POST /api/v1/auth/forgot-password", throttle(http.HandlerFunc(h.Auth.ForgotPassword)))
 	mux.Handle("POST /api/v1/auth/reset-password", throttle(http.HandlerFunc(h.Auth.ResetPassword)))
+	if h.ResendWebhook != nil {
+		mux.Handle("POST /api/v1/webhooks/resend", http.HandlerFunc(h.ResendWebhook.ServeHTTP))
+	}
 
 	// There is deliberately no POST /api/v1/auth/register. Membership begins in
 	// the library building, not on the internet (DOM-006, DEC-006).
@@ -158,6 +162,10 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 
 	mux.Handle("GET /api/v1/admin/audit",
 		authenticate(middleware.RequireAdmin(http.HandlerFunc(h.Admin.Audit))))
+	mux.Handle("GET /api/v1/admin/invitations",
+		authenticate(middleware.RequireAdmin(http.HandlerFunc(h.Admin.InvitationDeliveries))))
+	mux.Handle("POST /api/v1/admin/members/{id}/invitation",
+		authenticate(middleware.RequireAdmin(http.HandlerFunc(h.Admin.ResendInvitation))))
 
 	// Middleware runs outermost first. Recover is outermost so it catches a
 	// panic raised anywhere inside, including in the logger.

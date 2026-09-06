@@ -31,6 +31,14 @@ type MemberService struct {
 	tokens   TokenStore
 }
 
+type trackedNotifier interface {
+	QueueTracked(ctx context.Context, userID uuid.UUID, channel, template string, payload map[string]any) (uuid.UUID, error)
+}
+
+type invitationInvalidator interface {
+	InvalidateInvitations(ctx context.Context, memberID uuid.UUID) error
+}
+
 func NewMemberService(m MemberStore, n Notifier, tokens ...TokenStore) *MemberService {
 	var tokenStore TokenStore
 	if len(tokens) > 0 {
@@ -57,7 +65,8 @@ type NewMemberParams struct {
 	Category   domain.MemberCategory
 	Role       domain.Role
 	// IsSynthetic marks a simulated borrower (DEC-021).
-	IsSynthetic bool
+	IsSynthetic       bool
+	InvitationBatchID uuid.UUID
 }
 
 // displayName assembles the name shown across the system.
@@ -163,10 +172,18 @@ func (s *MemberService) Create(ctx context.Context, actor domain.Role, actorID u
 		}
 	}
 	if s.notifier != nil {
-		if err := s.notifier.Queue(ctx, user.ID, "email", "account_setup", map[string]any{
+		payload := map[string]any{
 			"full_name": user.FullName,
 			"token":     setupToken,
-		}); err != nil {
+		}
+		if p.InvitationBatchID != uuid.Nil {
+			payload["batch_id"] = p.InvitationBatchID.String()
+		}
+		if tracked, ok := s.notifier.(trackedNotifier); ok {
+			if _, err := tracked.QueueTracked(ctx, user.ID, "email", "account_setup", payload); err != nil {
+				return domain.User{}, "", err
+			}
+		} else if err := s.notifier.Queue(ctx, user.ID, "email", "account_setup", payload); err != nil {
 			return domain.User{}, "", err
 		}
 	}
@@ -263,6 +280,7 @@ func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, actorI
 	}
 
 	result := ImportResult{DryRun: dryRun}
+	batchID := uuid.New()
 	// Duplicates within the file itself are caught here. Duplicates against the
 	// database are caught by the unique constraint on insert during a real run,
 	// but a dry run never inserts, so it has to ask. pending records where each
@@ -297,16 +315,17 @@ func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, actorI
 		}
 
 		params := NewMemberParams{
-			Identifier: field("identifier"),
-			Email:      field("email"),
-			FullName:   field("full_name"),
-			FirstName:  field("first_name"),
-			LastName:   field("last_name"),
-			Faculty:    field("faculty"),
-			Department: field("department"),
-			Level:      field("level"),
-			Category:   domain.MemberCategory(strings.ToLower(field("category"))),
-			Role:       domain.RoleMember,
+			Identifier:        field("identifier"),
+			Email:             field("email"),
+			FullName:          field("full_name"),
+			FirstName:         field("first_name"),
+			LastName:          field("last_name"),
+			Faculty:           field("faculty"),
+			Department:        field("department"),
+			Level:             field("level"),
+			Category:          domain.MemberCategory(strings.ToLower(field("category"))),
+			Role:              domain.RoleMember,
+			InvitationBatchID: batchID,
 		}
 		// Most rows in a student intake are undergraduates and the column is
 		// often absent, so an empty category defaults rather than failing.
@@ -428,6 +447,40 @@ func (s *MemberService) List(ctx context.Context, search string, limit, offset i
 
 func (s *MemberService) Get(ctx context.Context, id uuid.UUID) (domain.User, error) {
 	return s.members.FindByID(ctx, id)
+}
+
+// ResendInvitation invalidates every previous setup link before queueing a new
+// one. The token itself is kept only in the queued email payload.
+func (s *MemberService) ResendInvitation(ctx context.Context, id uuid.UUID) error {
+	user, err := s.members.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if s.tokens == nil || s.notifier == nil {
+		return fmt.Errorf("invitation delivery is not configured")
+	}
+	if err := s.tokens.InvalidatePasswordResets(ctx, user.ID); err != nil {
+		return err
+	}
+	if invalidator, ok := s.notifier.(invitationInvalidator); ok {
+		if err := invalidator.InvalidateInvitations(ctx, user.ID); err != nil {
+			return err
+		}
+	}
+	token, hash, err := auth.NewOpaqueToken()
+	if err != nil {
+		return err
+	}
+	if err := s.tokens.SavePasswordReset(ctx, user.ID, hash, time.Now().UTC().Add(AccountSetupTTL)); err != nil {
+		return err
+	}
+	payload := map[string]any{"full_name": user.FullName, "token": token}
+	if tracked, ok := s.notifier.(trackedNotifier); ok {
+		_, err = tracked.QueueTracked(ctx, user.ID, "email", "account_setup", payload)
+	} else {
+		err = s.notifier.Queue(ctx, user.ID, "email", "account_setup", payload)
+	}
+	return err
 }
 
 // SetStatus suspends or reactivates a member (REQ-015).

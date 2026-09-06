@@ -42,8 +42,9 @@ type Config struct {
 	// production deployment that sets this hands out an administrator account.
 	SeedDemoData bool
 
-	ResendAPIKey string
-	MailFrom     string
+	ResendAPIKey        string
+	ResendWebhookSecret string
+	MailFrom            string
 
 	OpenLibraryBaseURL string
 
@@ -68,16 +69,17 @@ func Load() (Config, error) {
 	_ = godotenv.Load()
 
 	c := Config{
-		Port:               fallback("PORT", "8080"),
-		Env:                fallback("ENV", "development"),
-		DatabaseURL:        os.Getenv("DATABASE_URL"),
-		RedisURL:           os.Getenv("REDIS_URL"),
-		RedisPrefix:        fallback("REDIS_PREFIX", "holibrary"),
-		JWTSecret:          os.Getenv("JWT_SECRET"),
-		ResendAPIKey:       os.Getenv("RESEND_API_KEY"),
-		MailFrom:           fallback("MAIL_FROM", "library@example.edu.ng"),
-		OpenLibraryBaseURL: fallback("OPENLIBRARY_BASE_URL", "https://openlibrary.org"),
-		FrontendURL:        strings.TrimRight(fallback("FRONTEND_URL", "https://library.appmd.dev"), "/"),
+		Port:                fallback("PORT", "8080"),
+		Env:                 fallback("ENV", "development"),
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		RedisURL:            os.Getenv("REDIS_URL"),
+		RedisPrefix:         fallback("REDIS_PREFIX", "holibrary"),
+		JWTSecret:           os.Getenv("JWT_SECRET"),
+		ResendAPIKey:        os.Getenv("RESEND_API_KEY"),
+		ResendWebhookSecret: os.Getenv("RESEND_WEBHOOK_SECRET"),
+		MailFrom:            fallback("MAIL_FROM", "library@example.edu.ng"),
+		OpenLibraryBaseURL:  fallback("OPENLIBRARY_BASE_URL", "https://openlibrary.org"),
+		FrontendURL:         strings.TrimRight(fallback("FRONTEND_URL", "https://library.appmd.dev"), "/"),
 	}
 
 	var err error
