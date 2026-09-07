@@ -32,6 +32,17 @@ func TestCatalogueQueryValidation(t *testing.T) {
 	if err != nil || page != 1 || p.Limit != 20 || p.Sort != "relevance" {
 		t.Fatalf("defaults: %+v %d %v", p, page, err)
 	}
+	for _, tc := range []struct{ q, sort string }{
+		{"sort=year_desc&page=1&per_page=12", "newest"},
+		{"sort=year_asc", "oldest"},
+		{"sort=newest", "newest"},
+	} {
+		v, _ := url.ParseQuery(tc.q)
+		p, _, err = service.ParseCatalogueQuery(v)
+		if err != nil || p.Sort != tc.sort {
+			t.Fatalf("%s: sort=%s err=%v", tc.q, p.Sort, err)
+		}
+	}
 }
 
 func TestSavedQueryTypesAndAllowedFields(t *testing.T) {

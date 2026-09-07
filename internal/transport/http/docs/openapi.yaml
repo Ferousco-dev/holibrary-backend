@@ -446,7 +446,8 @@ paths:
         borrowable test whether a circulating copy can leave after server-side
         final-copy retention, preserving existing availability semantics. False
         selects the inverse condition. Use on_shelf in results for shelf presence.
-        newest/oldest sort by publication year; use new-arrivals for cataloguing time.
+        newest/oldest sort by publication year (year_desc/year_asc are aliases);
+        use new-arrivals for cataloguing time.
         Archived titles are excluded.
 
         Every result carries its derived **wing** and **availability**, so a
@@ -468,7 +469,7 @@ paths:
         - { name: borrowable, in: query, schema: { type: boolean } }
         - { name: year_from, in: query, schema: { type: integer, minimum: 1, maximum: 9999 } }
         - { name: year_to, in: query, schema: { type: integer, minimum: 1, maximum: 9999 } }
-        - { name: sort, in: query, schema: { type: string, enum: [relevance, title, newest, oldest], default: relevance } }
+        - { name: sort, in: query, schema: { type: string, enum: [relevance, title, newest, oldest, year_desc, year_asc], default: relevance } }
         - { $ref: '#/components/parameters/cataloguePage' }
         - { $ref: '#/components/parameters/cataloguePerPage' }
       responses:
@@ -1540,7 +1541,7 @@ components:
         borrowable: { type: boolean }
         year_from: { type: integer, minimum: 1, maximum: 9999 }
         year_to: { type: integer, minimum: 1, maximum: 9999 }
-        sort: { type: string, enum: [relevance, title, newest, oldest], default: relevance }
+        sort: { type: string, enum: [relevance, title, newest, oldest, year_desc, year_asc], default: relevance }
         page: { type: integer, minimum: 1, maximum: 1000000 }
         per_page: { type: integer, minimum: 1, maximum: 100 }
     NewSavedSearch:

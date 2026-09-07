@@ -91,6 +91,20 @@ func TestCatalogueHTTPPaginationAndValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestCatalogueSearchAcceptsYearDescSort(t *testing.T) {
+	store := &discoveryStore{}
+	h := NewCatalogueHandler(service.NewCatalogueService(store))
+	w := httptest.NewRecorder()
+	h.Search(w, httptest.NewRequest("GET", "/books?sort=year_desc&page=1&per_page=12", nil))
+	if w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	if store.query.Sort != "newest" || store.query.Limit != 12 || store.query.Offset != 0 {
+		t.Fatalf("params %+v", store.query)
+	}
+}
+
 func TestRelatedHTTPBoundsAndDefault(t *testing.T) {
 	store := &discoveryStore{}
 	h := NewCatalogueHandler(service.NewCatalogueService(store))

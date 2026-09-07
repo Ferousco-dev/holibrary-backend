@@ -101,6 +101,10 @@ func ParseCatalogueQuery(q url.Values) (postgres.SearchParams, int, error) {
 			switch v {
 			case "relevance", "title", "newest", "oldest":
 				p.Sort = v
+			case "year_desc":
+				p.Sort = "newest"
+			case "year_asc":
+				p.Sort = "oldest"
 			default:
 				return invalid()
 			}

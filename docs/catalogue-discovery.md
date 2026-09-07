@@ -40,7 +40,7 @@ call-number and LCC-class access points. Query strings reject unknown/repeated
 keys, blank values, malformed encoding, invalid booleans/enums/year ranges, and
 out-of-bound pagination. Page defaults to 1 and is bounded at 1,000,000; per-page
 defaults to 20 and is bounded at 100. Search strings are bounded at 200 characters,
-except free text at 500. `newest`/`oldest` sort by publication year, with missing
+except free text at 500. `newest`/`oldest` (aliases `year_desc`/`year_asc`) sort by publication year, with missing
 years last. New arrivals sort by creation time. All orders have UUID tie-breakers.
 The count and page execute in a read-only repeatable-read transaction, preserving
 correct totals even for empty pages beyond the end.
