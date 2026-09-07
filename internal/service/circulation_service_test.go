@@ -19,8 +19,19 @@ import (
 type fakeLoans struct {
 	borrowed           postgres.BorrowParams
 	borrowErr          error
+	selfChecked        postgres.BorrowParams
+	selfCheckoutErr    error
 	open               []domain.Loan
 	askedSyntheticOnly bool
+}
+
+func (f *fakeLoans) SelfCheckout(_ context.Context, p postgres.BorrowParams) (domain.Loan, error) {
+	f.selfChecked = p
+	if f.selfCheckoutErr != nil {
+		return domain.Loan{}, f.selfCheckoutErr
+	}
+	return domain.Loan{ID: uuid.New(), CopyID: p.CopyID, UserID: p.UserID,
+		BorrowedAt: p.BorrowedAt, DueAt: p.DueAt}, nil
 }
 
 func (f *fakeLoans) Borrow(_ context.Context, p postgres.BorrowParams) (domain.Loan, error) {
@@ -139,6 +150,48 @@ func TestBorrowRejectsMemberWithoutCategory(t *testing.T) {
 
 	if _, err := svc.Borrow(context.Background(), uuid.New(), m.ID, uuid.New()); !errors.Is(err, domain.ErrNoCategory) {
 		t.Errorf("error = %v, want ErrNoCategory", err)
+	}
+}
+
+func TestSelfCheckoutUsesTokenMemberAndCategoryDueDate(t *testing.T) {
+	loans := &fakeLoans{}
+	m := member(domain.CategoryPostgraduate, domain.UserActive)
+	svc := service.NewCirculationService(loans, &fakeMembers{user: m}, &fakeNotifier{})
+
+	copyID := uuid.New()
+	loan, err := svc.SelfCheckout(context.Background(), copyID, m.ID)
+	if err != nil {
+		t.Fatalf("SelfCheckout: %v", err)
+	}
+	if loans.selfChecked.UserID != m.ID || loans.selfChecked.IssuedBy != m.ID {
+		t.Fatalf("self checkout actor/member = %v/%v, want %v/%v",
+			loans.selfChecked.IssuedBy, loans.selfChecked.UserID, m.ID, m.ID)
+	}
+	if loans.selfChecked.CopyID != copyID || loan.DueAt.Sub(loan.BorrowedAt) != 21*24*time.Hour {
+		t.Errorf("self checkout did not use the server-side copy or category period")
+	}
+}
+
+func TestSelfCheckoutRejectsSuspendedMemberBeforeStore(t *testing.T) {
+	loans := &fakeLoans{}
+	m := member(domain.CategoryUndergraduate, domain.UserSuspended)
+	svc := service.NewCirculationService(loans, &fakeMembers{user: m}, &fakeNotifier{})
+
+	if _, err := svc.SelfCheckout(context.Background(), uuid.New(), m.ID); !errors.Is(err, domain.ErrMemberSuspended) {
+		t.Fatalf("error = %v, want ErrMemberSuspended", err)
+	}
+	if loans.selfChecked.CopyID != uuid.Nil {
+		t.Error("suspended member reached the checkout store")
+	}
+}
+
+func TestSelfCheckoutPropagatesLoanLimit(t *testing.T) {
+	loans := &fakeLoans{selfCheckoutErr: domain.ErrLoanLimitReached}
+	m := member(domain.CategoryUndergraduate, domain.UserActive)
+	svc := service.NewCirculationService(loans, &fakeMembers{user: m}, &fakeNotifier{})
+
+	if _, err := svc.SelfCheckout(context.Background(), uuid.New(), m.ID); !errors.Is(err, domain.ErrLoanLimitReached) {
+		t.Fatalf("error = %v, want ErrLoanLimitReached", err)
 	}
 }
 

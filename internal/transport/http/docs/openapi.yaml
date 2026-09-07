@@ -727,6 +727,40 @@ paths:
                     items: { $ref: '#/components/schemas/Loan' }
         "401": { $ref: '#/components/responses/Unauthenticated' }
         "403": { $ref: '#/components/responses/MustChangePassword' }
+    post:
+      tags: [My account]
+      summary: Borrow an available copy yourself
+      description: |
+        An active signed-in member may borrow one available circulating copy.
+        The member is derived exclusively from the bearer token; `member_id`,
+        `user_id`, matriculation numbers, staff numbers and due dates are not
+        accepted in the request. The server computes the due date from the
+        member category and performs the copy claim, limit check, reservation
+        fulfillment and audit event in one transaction.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [copy_id]
+              additionalProperties: false
+              properties:
+                copy_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Loan created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Loan' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "403": { $ref: '#/components/schemas/Error' }
+        "404": { $ref: '#/components/schemas/Error' }
+        "409": { $ref: '#/components/schemas/Error' }
+        "422": { $ref: '#/components/schemas/Error' }
 
   /me/history:
     get:
@@ -1527,6 +1561,7 @@ components:
         book_title: { type: string }
         accession_number: { type: string }
         borrowed_at: { type: string, format: date-time, example: "2026-09-03T18:15:00Z" }
+        issued_at: { type: string, format: date-time, example: "2026-09-03T18:15:00Z" }
         due_at: { type: string, format: date-time, example: "2026-09-17T18:15:00Z" }
         returned_at: { type: string, format: date-time, nullable: true }
         status: { type: string, enum: [borrowed, returned, overdue] }

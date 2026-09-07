@@ -53,12 +53,43 @@ type BorrowParams struct {
 //
 // REQ-041..047, NFR-009.
 func (r *CirculationRepo) Borrow(ctx context.Context, p BorrowParams) (domain.Loan, error) {
+	return r.borrow(ctx, p, false)
+}
+
+// SelfCheckout is the member-facing borrowing path. It shares the same
+// transaction and database guards as desk borrowing, but also consumes the
+// head reservation atomically when the caller owns it.
+func (r *CirculationRepo) SelfCheckout(ctx context.Context, p BorrowParams) (domain.Loan, error) {
+	return r.borrow(ctx, p, true)
+}
+
+func (r *CirculationRepo) borrow(ctx context.Context, p BorrowParams, selfCheckout bool) (domain.Loan, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return domain.Loan{}, translate(err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
+	// A self-checkout may consume only the head reservation for this title. The
+	// copy lock above serializes competing checkouts of this physical copy; the
+	// row lock here serializes competing attempts to consume the queue head.
+	var reservationID, reservationUserID uuid.UUID
+	if selfCheckout {
+		err = tx.QueryRow(ctx, `
+			SELECT r.id, r.user_id
+			  FROM reservations r
+			 WHERE r.book_id = (SELECT book_id FROM copies WHERE id = $1)
+			   AND r.status IN ('pending', 'ready')
+			 ORDER BY r.created_at, r.id
+			 LIMIT 1
+			 FOR UPDATE`, p.CopyID).Scan(&reservationID, &reservationUserID)
+		if err == nil && reservationUserID != p.UserID {
+			return domain.Loan{}, domain.ErrReservedForOther
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return domain.Loan{}, translate(err)
+		}
+	}
 	// Step 1: claim the copy. The status change and the availability test are
 	// one statement, so no other transaction can act between them.
 	var claimed uuid.UUID
@@ -158,14 +189,29 @@ func (r *CirculationRepo) Borrow(ctx context.Context, p BorrowParams) (domain.Lo
 		return domain.Loan{}, translate(err)
 	}
 
+	if selfCheckout && reservationID != uuid.Nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE reservations SET status = 'fulfilled'
+			 WHERE id = $1 AND user_id = $2 AND status IN ('pending', 'ready')`,
+			reservationID, p.UserID); err != nil {
+			return domain.Loan{}, translate(err)
+		}
+	}
+
 	// On the transaction, so a loan that rolls back leaves no trace claiming it
 	// happened (REQ-068).
-	if err := recordAudit(ctx, tx, p.IssuedBy, "LOAN_ISSUED", "loan", l.ID, map[string]any{
+	action := "LOAN_ISSUED"
+	metadata := map[string]any{
 		"copy_id":          l.CopyID,
 		"member_id":        l.UserID,
 		"accession_number": l.AccessionNumber,
 		"due_at":           l.DueAt,
-	}); err != nil {
+	}
+	if selfCheckout {
+		action = "MEMBER_SELF_CHECKOUT"
+		metadata["source"] = "web_self_checkout"
+	}
+	if err := recordAudit(ctx, tx, p.IssuedBy, action, "loan", l.ID, metadata); err != nil {
 		return domain.Loan{}, err
 	}
 
@@ -182,6 +228,9 @@ func (r *CirculationRepo) explainUnclaimableCopy(ctx context.Context, copyID uui
 	var policy domain.LoanPolicy
 	err := r.db.QueryRow(ctx,
 		`SELECT status, loan_policy FROM copies WHERE id = $1`, copyID).Scan(&status, &policy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrCopyNotFound
+	}
 	if err != nil {
 		return translate(err) // ErrNotFound when the copy does not exist
 	}

@@ -21,6 +21,10 @@ type CirculationStore interface {
 	Stats(ctx context.Context) (postgres.Stats, error)
 }
 
+type SelfCheckoutStore interface {
+	SelfCheckout(ctx context.Context, p postgres.BorrowParams) (domain.Loan, error)
+}
+
 // MemberLookup reads the member being lent to.
 type MemberLookup interface {
 	FindByID(ctx context.Context, id uuid.UUID) (domain.User, error)
@@ -98,6 +102,50 @@ func (s *CirculationService) Borrow(ctx context.Context, copyID, memberID, libra
 		"loan_id": loan.ID.String(),
 		"title":   loan.BookTitle,
 		"due_at":  loan.DueAt.UTC().Format(time.RFC3339),
+	})
+	return loan, nil
+}
+
+// SelfCheckout records a member borrowing for themselves. The caller identity
+// is supplied by the authenticated handler and is used as both member and
+// audit actor; no request field can select another account.
+func (s *CirculationService) SelfCheckout(ctx context.Context, copyID, memberID uuid.UUID) (domain.Loan, error) {
+	member, err := s.members.FindByID(ctx, memberID)
+	if err != nil {
+		return domain.Loan{}, err
+	}
+	if member.Role != domain.RoleMember {
+		return domain.Loan{}, domain.ErrForbidden
+	}
+	if member.Status == domain.UserSuspended {
+		return domain.Loan{}, domain.ErrMemberSuspended
+	}
+	if !member.CanBorrow() {
+		return domain.Loan{}, domain.ErrMemberNotActive
+	}
+	if member.Category == nil {
+		return domain.Loan{}, domain.ErrNoCategory
+	}
+	terms, ok := domain.TermsFor(*member.Category)
+	if !ok {
+		return domain.Loan{}, domain.ErrNoCategory
+	}
+	store, ok := s.loans.(SelfCheckoutStore)
+	if !ok {
+		return domain.Loan{}, errors.New("self-checkout store is not configured")
+	}
+	borrowedAt := s.now()
+	loan, err := store.SelfCheckout(ctx, postgres.BorrowParams{
+		CopyID: copyID, UserID: memberID, IssuedBy: memberID,
+		BorrowedAt: borrowedAt, DueAt: borrowedAt.Add(terms.LoanPeriod),
+		MaxLoans: terms.MaxConcurrentLoans,
+	})
+	if err != nil {
+		return domain.Loan{}, err
+	}
+	_ = s.notifier.Queue(ctx, memberID, "email", "loan_receipt", map[string]any{
+		"loan_id": loan.ID.String(), "title": loan.BookTitle,
+		"due_at": loan.DueAt.UTC().Format(time.RFC3339),
 	})
 	return loan, nil
 }

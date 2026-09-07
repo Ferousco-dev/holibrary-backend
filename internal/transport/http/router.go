@@ -104,6 +104,8 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	// URL. There is no parameter to tamper with, so one member cannot read
 	// another's borrowing history (REQ-062, DOM-009).
 	mux.Handle("GET /api/v1/me/loans", authenticate(http.HandlerFunc(h.Circulation.MyLoans)))
+	mux.Handle("POST /api/v1/me/loans",
+		authenticate(middleware.RequireMember(http.HandlerFunc(h.Circulation.SelfCheckout))))
 	mux.Handle("GET /api/v1/me/history", authenticate(http.HandlerFunc(h.Circulation.MyHistory)))
 
 	// Members place their own reservations. Unlike borrowing, joining a queue

@@ -163,6 +163,18 @@ func RequireLibrarian(next http.Handler) http.Handler {
 	})
 }
 
+// RequireMember restricts self-service circulation to member accounts. Staff
+// use the desk workflow, which accepts an explicitly selected member.
+func RequireMember(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if Role(r.Context()) != domain.RoleMember {
+			response.FromError(w, domain.ErrForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RequireAdmin restricts a route to administrators.
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

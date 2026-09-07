@@ -35,6 +35,7 @@ type loanResponse struct {
 	BookTitle       string     `json:"book_title,omitempty"`
 	AccessionNumber string     `json:"accession_number,omitempty"`
 	BorrowedAt      time.Time  `json:"borrowed_at"`
+	IssuedAt        time.Time  `json:"issued_at"`
 	DueAt           time.Time  `json:"due_at"`
 	ReturnedAt      *time.Time `json:"returned_at"`
 	Status          string     `json:"status"`
@@ -55,7 +56,7 @@ func toLoanResponse(l domain.Loan, now time.Time) loanResponse {
 		ID: l.ID.String(), CopyID: l.CopyID.String(), UserID: l.UserID.String(),
 		MemberName: l.MemberName, BookTitle: l.BookTitle,
 		AccessionNumber: l.AccessionNumber,
-		BorrowedAt:      l.BorrowedAt, DueAt: l.DueAt, ReturnedAt: l.ReturnedAt,
+		BorrowedAt:      l.BorrowedAt, IssuedAt: l.BorrowedAt, DueAt: l.DueAt, ReturnedAt: l.ReturnedAt,
 		Status: status, IsOverdue: l.IsOverdueAt(now), DaysOverdue: l.DaysOverdueAt(now),
 	}
 }
@@ -74,6 +75,36 @@ func toLoanResponses(loans []domain.Loan) []loanResponse {
 type borrowRequest struct {
 	CopyID   string `json:"copy_id"`
 	MemberID string `json:"member_id"`
+}
+
+type selfCheckoutRequest struct {
+	CopyID string `json:"copy_id"`
+}
+
+// SelfCheckout lets the authenticated member borrow one available copy. The
+// member id is deliberately absent from the request type and comes only from
+// the access token context.
+func (h *CirculationHandler) SelfCheckout(w http.ResponseWriter, r *http.Request) {
+	memberID, ok := middleware.UserID(r.Context())
+	if !ok {
+		response.FromError(w, domain.ErrUnauthenticated)
+		return
+	}
+	var req selfCheckoutRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	copyID, err := uuid.Parse(req.CopyID)
+	if err != nil {
+		response.ValidationError(w, "copy_id must be a valid identifier.", nil)
+		return
+	}
+	loan, err := h.circulation.SelfCheckout(r.Context(), copyID, memberID)
+	if err != nil {
+		response.FromError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusCreated, toLoanResponse(loan, time.Now().UTC()), nil)
 }
 
 // Borrow records a physical copy leaving the building (REQ-041).
