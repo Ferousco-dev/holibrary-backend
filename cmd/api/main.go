@@ -230,6 +230,7 @@ func run() error {
 		Members:       handler.NewMemberHandler(memberService, circulationService),
 		Reservations:  handler.NewReservationHandler(reservationService),
 		Bookmarks:     handler.NewBookmarkHandler(bookmarkService),
+		SavedSearches: handler.NewSavedSearchHandler(service.NewSavedSearchService(postgres.NewSavedSearchRepo(db))),
 		Devices:       handler.NewDeviceHandler(outbox),
 		Lookup:        handler.NewLookupHandler(externalCatalogue),
 		Admin:         handler.NewAdminHandler(circulationService, audit, invitations, memberService),

@@ -23,6 +23,15 @@ func NewCatalogueRepo(db *pgxpool.Pool) *CatalogueRepo { return &CatalogueRepo{d
 // three access points the card catalogue has always provided, and HOL's own OPAC
 // searches "author, title and subject entries, keywords in titles" (DOM-007).
 type SearchParams struct {
+	Faculty       string
+	Department    string
+	Language      string
+	Wing          string
+	YearFrom      *int
+	YearTo        *int
+	Available     *bool
+	Borrowable    *bool
+	Sort          string
 	Query         string // free-text across all three access points
 	Title         string
 	Author        string
@@ -58,14 +67,14 @@ const availabilitySelect = `
 	  WHERE c.book_id = b.id AND c.loan_policy = 'circulating'
 	    AND c.status IN ('available','on_loan'))                             AS stock`
 
-// bookFields and bookFrom are kept apart so the window-function count used for
-// pagination can be appended to the select list, before FROM. Concatenating it
-// onto a string that already ended in FROM produced a syntax error: DEF-002.
+// bookFields and bookFrom are kept apart so bookmark metadata can be appended
+// to the select list before FROM (DEF-002).
 const bookFields = `
 	SELECT b.id, b.title, coalesce(b.subtitle,''), coalesce(b.isbn13,''),
 	       coalesce(b.isbn10,''), coalesce(b.publisher,''),
 	       coalesce(b.place_of_publication,''), b.published_year,
 	       b.call_number, b.lcc_class, coalesce(b.description,''), b.status,
+ coalesce(b.edition,''), coalesce(b.language,''), coalesce(b.faculty,''), coalesce(b.department,''), b.created_at,
 	       coalesce((SELECT array_agg(a.name ORDER BY ba.position)
 	                   FROM book_authors ba JOIN authors a ON a.id = ba.author_id
 	                  WHERE ba.book_id = b.id), '{}')                        AS authors,
@@ -83,78 +92,148 @@ func scanBook(row pgx.Row) (domain.Book, error) {
 	var b domain.Book
 	err := row.Scan(&b.ID, &b.Title, &b.Subtitle, &b.ISBN13, &b.ISBN10,
 		&b.Publisher, &b.PlaceOfPublication, &b.PublishedYear, &b.CallNumber,
-		&b.LCCClass, &b.Description, &b.Status, &b.Authors, &b.Subjects,
+		&b.LCCClass, &b.Description, &b.Status, &b.Edition, &b.Language, &b.Faculty, &b.Department, &b.CreatedAt, &b.Authors, &b.Subjects,
 		&b.Availability.TotalCopies, &b.Availability.Available,
 		&b.Availability.OnLoan, &b.Availability.NotForLoan, &b.Availability.Stock)
 	return b, err
 }
 
-// Search runs a catalogue query.
-//
-// Every filter is a bound parameter and the WHERE clause is fixed text: an empty
-// parameter disables its own condition. Building the clause by concatenation
-// would be the classic injection vector, so it is not done (NFR-008).
-func (r *CatalogueRepo) Search(ctx context.Context, p SearchParams) ([]domain.Book, int, error) {
-	q := bookFields + `,
-	       count(*) OVER() AS total` + bookFrom + `
-	 WHERE b.status = 'active'
-	   AND ($1 = '' OR b.search_vector @@ plainto_tsquery('english', $1))
-	   AND ($2 = '' OR b.title ILIKE '%' || $2 || '%')
-	   AND ($3 = '' OR EXISTS (SELECT 1 FROM book_authors ba
-	                             JOIN authors a ON a.id = ba.author_id
-	                            WHERE ba.book_id = b.id AND a.name ILIKE '%' || $3 || '%'))
-	   AND ($4 = '' OR EXISTS (SELECT 1 FROM book_subjects bs
-	                             JOIN subjects s ON s.id = bs.subject_id
-	                            WHERE bs.book_id = b.id AND s.heading ILIKE '%' || $4 || '%'))
-	   AND ($5 = '' OR b.isbn13 = $5 OR b.isbn10 = $5)
-	   AND ($6 = '' OR b.call_number ILIKE $6 || '%')
-	   AND ($7 = '' OR b.lcc_class = $7)
-	   -- "available" means a copy may actually leave the building, so the
-	      -- retained shelf copy does not make a title look borrowable (DEC-018).
-	   AND (NOT $8 OR (
-	         SELECT CASE WHEN count(*) FILTER (WHERE c.loan_policy = 'circulating'
-	                                             AND c.status IN ('available','on_loan')) < 2
-	                     THEN count(*) FILTER (WHERE c.loan_policy = 'circulating'
-	                                             AND c.status = 'available')
-	                     ELSE greatest(count(*) FILTER (WHERE c.loan_policy = 'circulating'
-	                                                      AND c.status = 'available') - 1, 0)
-	                END
-	           FROM copies c WHERE c.book_id = b.id) > 0)
-	 ORDER BY
-	   CASE WHEN $1 = '' THEN 0
-	        ELSE ts_rank(b.search_vector, plainto_tsquery('english', $1)) END DESC,
-	   b.title,
-	   -- Tie-break on the primary key. Titles are not unique and neither are
-	   -- rank scores, so without this two books ordered arbitrarily could swap
-	   -- between requests, making page 2 repeat a row from page 1 and drop
-	   -- another entirely. A total order is what makes pagination stable.
-	   -- DEF-008.
-	   b.id
-	 LIMIT $9 OFFSET $10`
+// wingExpression mirrors domain.WingFor using the stored LCC class.
+const wingExpression = `CASE WHEN b.lcc_class BETWEEN 'A' AND 'J' THEN 'South'
+ WHEN b.lcc_class BETWEEN 'K' AND 'Z' THEN 'North' ELSE 'Unknown' END`
 
-	rows, err := r.db.Query(ctx, q, p.Query, p.Title, p.Author, p.Subject,
-		strings.ReplaceAll(p.ISBN, "-", ""), p.CallNumber, p.LCCClass,
-		p.OnlyAvailable, p.Limit, p.Offset)
+// This mirrors domain.BorrowableCount, including single-copy circulation.
+const borrowableExpression = `(SELECT CASE
+ WHEN count(*) FILTER (WHERE c.loan_policy = 'circulating' AND c.status IN ('available','on_loan')) < 2
+ THEN count(*) FILTER (WHERE c.loan_policy = 'circulating' AND c.status = 'available')
+ ELSE greatest(count(*) FILTER (WHERE c.loan_policy = 'circulating' AND c.status = 'available') - 1, 0)
+ END FROM copies c WHERE c.book_id = b.id)`
+
+const searchWhere = ` WHERE b.status = 'active'
+ AND ($1 = '' OR b.search_vector @@ plainto_tsquery('english', $1))
+ AND ($2 = '' OR b.title ILIKE '%' || $2 || '%')
+ AND ($3 = '' OR EXISTS (SELECT 1 FROM book_authors ba JOIN authors a ON a.id = ba.author_id WHERE ba.book_id = b.id AND a.name ILIKE '%' || $3 || '%'))
+ AND ($4 = '' OR EXISTS (SELECT 1 FROM book_subjects bs JOIN subjects s ON s.id = bs.subject_id WHERE bs.book_id = b.id AND s.heading ILIKE '%' || $4 || '%'))
+ AND ($5 = '' OR b.isbn13 = $5 OR b.isbn10 = $5)
+ AND ($6 = '' OR b.call_number ILIKE $6 || '%')
+ AND ($7 = '' OR b.lcc_class = $7)
+ AND ($8::boolean IS NULL OR (` + borrowableExpression + ` > 0) = $8)
+ AND ($9::boolean IS NULL OR (` + borrowableExpression + ` > 0) = $9)
+ AND ($10 = '' OR lower(b.faculty) = lower($10))
+ AND ($11 = '' OR lower(b.department) = lower($11))
+ AND ($12 = '' OR lower(b.language) = lower($12))
+ AND ($13 = '' OR ` + wingExpression + ` = $13)
+ AND ($14::integer IS NULL OR b.published_year >= $14)
+ AND ($15::integer IS NULL OR b.published_year <= $15)`
+
+// Search binds every input. The count and page share one snapshot, including
+// pages beyond the last row, which must still report the matching total.
+func (r *CatalogueRepo) Search(ctx context.Context, p SearchParams) ([]domain.Book, int, error) {
+	available := p.Available
+	if available == nil && p.OnlyAvailable {
+		v := true
+		available = &v
+	}
+	args := []any{p.Query, p.Title, p.Author, p.Subject, strings.ReplaceAll(p.ISBN, "-", ""), p.CallNumber, p.LCCClass, available, p.Borrowable, p.Faculty, p.Department, p.Language, p.Wing, p.YearFrom, p.YearTo}
+	order := ` ORDER BY CASE WHEN $16 = 'relevance' THEN ts_rank(b.search_vector, plainto_tsquery('english', $1)) END DESC,
+ CASE WHEN $16 = 'newest' THEN b.published_year END DESC NULLS LAST,
+ CASE WHEN $16 = 'oldest' THEN b.published_year END ASC NULLS LAST, b.title, b.id LIMIT $17 OFFSET $18`
+	sort := p.Sort
+	if sort == "" {
+		sort = "relevance"
+	}
+	return r.bookPage(ctx, searchWhere, order, args, []any{sort, p.Limit, p.Offset})
+}
+
+func (r *CatalogueRepo) bookPage(ctx context.Context, where, order string, filters, pagination []any) ([]domain.Book, int, error) {
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, 0, translate(err)
 	}
-	defer rows.Close()
-
-	var books []domain.Book
-	total := 0
+	defer tx.Rollback(ctx)
+	var total int
+	if err := tx.QueryRow(ctx, `SELECT count(*)`+bookFrom+where, filters...).Scan(&total); err != nil {
+		return nil, 0, translate(err)
+	}
+	args := append(append([]any{}, filters...), pagination...)
+	rows, err := tx.Query(ctx, bookSelect+where+order, args...)
+	if err != nil {
+		return nil, 0, translate(err)
+	}
+	books := make([]domain.Book, 0)
 	for rows.Next() {
-		var b domain.Book
-		if err := rows.Scan(&b.ID, &b.Title, &b.Subtitle, &b.ISBN13, &b.ISBN10,
-			&b.Publisher, &b.PlaceOfPublication, &b.PublishedYear, &b.CallNumber,
-			&b.LCCClass, &b.Description, &b.Status, &b.Authors, &b.Subjects,
-			&b.Availability.TotalCopies, &b.Availability.Available,
-			&b.Availability.OnLoan, &b.Availability.NotForLoan,
-			&b.Availability.Stock, &total); err != nil {
+		b, err := scanBook(rows)
+		if err != nil {
+			rows.Close()
 			return nil, 0, translate(err)
 		}
 		books = append(books, b)
 	}
-	return books, total, rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, 0, translate(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, 0, translate(err)
+	}
+	return books, total, nil
+}
+
+func (r *CatalogueRepo) NewArrivals(ctx context.Context, limit, offset int) ([]domain.Book, int, error) {
+	return r.bookPage(ctx, ` WHERE b.status = 'active'`, ` ORDER BY b.created_at DESC,b.id LIMIT $1 OFFSET $2`, nil, []any{limit, offset})
+}
+
+func (r *CatalogueRepo) Related(ctx context.Context, id uuid.UUID, limit int) ([]domain.Book, error) {
+	const subjects = `(SELECT count(*) FROM book_subjects candidate JOIN book_subjects source ON source.subject_id = candidate.subject_id WHERE candidate.book_id = b.id AND source.book_id = $1)`
+	const authors = `(SELECT count(*) FROM book_authors candidate JOIN book_authors source ON source.author_id = candidate.author_id WHERE candidate.book_id = b.id AND source.book_id = $1)`
+	rows, err := r.db.Query(ctx, bookSelect+` WHERE b.status = 'active' AND b.id <> $1
+ AND EXISTS (SELECT 1 FROM books source WHERE source.id = $1 AND source.status = 'active')
+ AND (`+subjects+` > 0 OR `+authors+` > 0)
+ ORDER BY `+subjects+` DESC,`+authors+` DESC,b.title,b.id LIMIT $2`, id, limit)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := make([]domain.Book, 0)
+	for rows.Next() {
+		b, err := scanBook(rows)
+		if err != nil {
+			return nil, translate(err)
+		}
+		out = append(out, b)
+	}
+	return out, translate(rows.Err())
+}
+
+// Facets count public titles rather than copies or member affiliation records.
+func (r *CatalogueRepo) Facets(ctx context.Context) (map[string][]domain.FacetValue, error) {
+	const q = `WITH public_books AS (SELECT * FROM books WHERE status = 'active'), facet_values AS (
+ SELECT 'subjects' AS facet,s.heading AS value,b.id FROM public_books b JOIN book_subjects bs ON bs.book_id=b.id JOIN subjects s ON s.id=bs.subject_id
+ UNION ALL SELECT 'authors',a.name,b.id FROM public_books b JOIN book_authors ba ON ba.book_id=b.id JOIN authors a ON a.id=ba.author_id
+ UNION ALL SELECT 'languages',b.language,b.id FROM public_books b
+ UNION ALL SELECT 'publication_years',b.published_year::text,b.id FROM public_books b
+ UNION ALL SELECT 'wings',` + wingExpression + `,b.id FROM public_books b
+ UNION ALL SELECT 'faculties',b.faculty,b.id FROM public_books b
+ UNION ALL SELECT 'departments',b.department,b.id FROM public_books b)
+ SELECT facet,value,count(DISTINCT id) FROM facet_values WHERE value IS NOT NULL AND trim(value) <> '' GROUP BY facet,value ORDER BY facet,value`
+	rows, err := r.db.Query(ctx, q)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := map[string][]domain.FacetValue{}
+	for _, key := range []string{"subjects", "authors", "languages", "publication_years", "wings", "faculties", "departments"} {
+		out[key] = []domain.FacetValue{}
+	}
+	for rows.Next() {
+		var key string
+		var v domain.FacetValue
+		if err := rows.Scan(&key, &v.Value, &v.Count); err != nil {
+			return nil, translate(err)
+		}
+		out[key] = append(out[key], v)
+	}
+	return out, translate(rows.Err())
 }
 
 func (r *CatalogueRepo) FindBook(ctx context.Context, id uuid.UUID) (domain.Book, error) {
@@ -164,6 +243,10 @@ func (r *CatalogueRepo) FindBook(ctx context.Context, id uuid.UUID) (domain.Book
 
 // CreateBookParams carries a new bibliographic record.
 type CreateBookParams struct {
+	Edition            string
+	Language           string
+	Faculty            string
+	Department         string
 	Title              string
 	Subtitle           string
 	ISBN13             string
@@ -214,13 +297,13 @@ func (r *CatalogueRepo) CreateBook(ctx context.Context, p CreateBookParams) (dom
 	err = tx.QueryRow(ctx, `
 		INSERT INTO books (title, subtitle, isbn13, isbn10, publisher,
 		                   place_of_publication, published_year, call_number,
-		                   lcc_class, description)
+		                   lcc_class, description, edition, language, faculty, department)
 		VALUES ($1,$2,nullif($3,''),nullif($4,''),nullif($5,''),nullif($6,''),
-		        $7,$8,$9,nullif($10,''))
+		        $7,$8,$9,nullif($10,''),nullif($11,''),nullif($12,''),nullif($13,''),nullif($14,''))
 		RETURNING id`,
 		p.Title, nullif(p.Subtitle), p.ISBN13, p.ISBN10, p.Publisher,
 		p.PlaceOfPublication, p.PublishedYear, strings.TrimSpace(p.CallNumber),
-		lccClass, p.Description).Scan(&id)
+		lccClass, p.Description, p.Edition, p.Language, p.Faculty, p.Department).Scan(&id)
 	if err != nil {
 		// One ISBN is one title. A second attempt to catalogue the same work is
 		// not an error to swallow: the caller should add a copy to the title

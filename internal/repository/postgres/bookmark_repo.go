@@ -94,7 +94,7 @@ func (r *BookmarkRepo) List(ctx context.Context, userID uuid.UUID, limit, offset
 		b := &item.Book
 		if err := rows.Scan(&b.ID, &b.Title, &b.Subtitle, &b.ISBN13, &b.ISBN10,
 			&b.Publisher, &b.PlaceOfPublication, &b.PublishedYear, &b.CallNumber,
-			&b.LCCClass, &b.Description, &b.Status, &b.Authors, &b.Subjects,
+			&b.LCCClass, &b.Description, &b.Status, &b.Edition, &b.Language, &b.Faculty, &b.Department, &b.CreatedAt, &b.Authors, &b.Subjects,
 			&b.Availability.TotalCopies, &b.Availability.Available,
 			&b.Availability.OnLoan, &b.Availability.NotForLoan, &b.Availability.Stock,
 			&item.SavedAt); err != nil {

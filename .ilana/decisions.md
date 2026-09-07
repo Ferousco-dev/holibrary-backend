@@ -32,3 +32,14 @@
 | DEC-028 | **Deployment runs through the pipeline, not on push** | Render's auto-deploy builds straight from a commit, before tests have run, which would put an untested version in front of students. It was also silently not working: a service created through the API has no GitHub webhook, so four commits sat undeployed while the dashboard reported auto-deploy enabled. The workflow deploys through the API once every check is green, then smoke tests the running service. |
 | DEC-029 | **Proxy headers trusted only behind Cloudflare** | `TRUST_PROXY_HEADERS` is true in production because Render terminates TLS and the origin is not otherwise reachable. It defaults to false everywhere else: `CF-Connecting-IP` is an ordinary header that anyone reaching the origin directly can forge, which would let an attacker dodge the per-IP limit or lock a member out by forging theirs. |
 | DEC-030 | **Emails carry a link and a code, in HTML and plain text** | A reset that offers only a 43-character code asks the reader to retype it. The code remains beneath the button because mail clients mangle links and corporate filters rewrite them. Both parts are always sent: the text is what a screen reader and a spam filter read, and a message with no text alternative scores worse with the latter. |
+
+## DEC-031 — Preserve catalogue availability semantics (2026-09-07)
+The existing available filter means a circulating copy may leave after final-copy
+retention. Keep that meaning and use the same calculation for borrowable, with
+explicit false selecting its inverse. See docs/catalogue-discovery.md.
+
+## DEC-032 — Catalogue affiliations and optional metadata (2026-09-07)
+Faculty/department filters use nullable title metadata, never member profiles.
+No metadata is invented or backfilled. Preserve legacy bibliographic response
+names while adding lowercase optional metadata through a public projection.
+See docs/catalogue-discovery.md.

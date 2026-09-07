@@ -2,10 +2,10 @@
   "project": "group4-online-library-management-system",
   "course": "SEN 106 / SEN 216 - Introduction to Web Technologies",
   "institution": "Obafemi Awolowo University, Ile-Ife",
-  "mode": "AUDIT",
-  "phase": "07",
-  "gate": "G6",
-  "agent": "quality-auditor",
+  "mode": "FLEET",
+  "phase": "08",
+  "gate": "G8",
+  "agent": "conductor",
   "process_style": "hybrid",
   "rigour": 4,
   "stack": {
@@ -33,14 +33,14 @@
   ],
   "overrides": [],
   "counters": {
-    "REQ": 74,
+    "REQ": 81,
     "NFR": 20,
     "DOM": 9,
     "DES": 11,
-    "TC": 105,
+    "TC": 112,
     "DEF": 27,
-    "CR": 0,
-    "DEC": 30,
+    "CR": 1,
+    "DEC": 32,
     "RSK": 9
   },
   "attempts": {
@@ -60,5 +60,11 @@
     "edge": "Cloudflare, appmd.dev, proxied, Full (strict)",
     "mail": "Resend, holibrary@appmd.dev, verified working",
     "pipeline": "GitHub Actions: test, security, migrations, docker -> deploy -> smoke"
+  },
+  "latest_change": {
+    "id": "CR-001",
+    "scope": "physical catalogue discovery and saved searches",
+    "status": "implemented and verified locally; not deployed",
+    "evidence": "docs/catalogue-discovery.md"
   }
 }

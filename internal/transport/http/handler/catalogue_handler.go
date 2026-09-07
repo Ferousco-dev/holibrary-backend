@@ -72,21 +72,18 @@ type copyAtDeskResponse struct {
 // Search is open to visitors who are not signed in, because the catalogue is
 // public information; nothing personal is reachable here (REQ-037).
 func (h *CatalogueHandler) Search(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	limit, offset, page := pagination(r)
-
-	books, total, err := h.catalogue.Search(r.Context(), postgres.SearchParams{
-		Query:         q.Get("q"),
-		Title:         q.Get("title"),
-		Author:        q.Get("author"),
-		Subject:       q.Get("subject"),
-		ISBN:          q.Get("isbn"),
-		CallNumber:    q.Get("call_number"),
-		LCCClass:      q.Get("class"),
-		OnlyAvailable: boolParam(r, "available"),
-		Limit:         limit,
-		Offset:        offset,
-	})
+	q, err := catalogueQueryValues(r)
+	if err != nil {
+		response.FromError(w, err)
+		return
+	}
+	p, page, err := service.ParseCatalogueQuery(q)
+	if err != nil {
+		response.FromError(w, err)
+		return
+	}
+	limit := p.Limit
+	books, total, err := h.catalogue.Search(r.Context(), p)
 	if err != nil {
 		response.FromError(w, err)
 		return
@@ -124,6 +121,10 @@ func (h *CatalogueHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createBookRequest struct {
+	Edition            string   `json:"edition"`
+	Language           string   `json:"language"`
+	Faculty            string   `json:"faculty"`
+	Department         string   `json:"department"`
 	Title              string   `json:"title"`
 	Subtitle           string   `json:"subtitle"`
 	ISBN13             string   `json:"isbn13"`
@@ -150,7 +151,8 @@ func (h *CatalogueHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// instead of only telling it no.
 	staffID, _ := middleware.UserID(r.Context())
 	book, err := h.catalogue.CreateBook(r.Context(), postgres.CreateBookParams{
-		StaffID:            staffID,
+		StaffID: staffID,
+		Edition: req.Edition, Language: req.Language, Faculty: req.Faculty, Department: req.Department,
 		Title:              req.Title,
 		Subtitle:           req.Subtitle,
 		ISBN13:             req.ISBN13,

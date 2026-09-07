@@ -73,6 +73,10 @@ var errorMap = []struct {
 	code    string
 	message string
 }{
+	{domain.ErrInvalidSearch, http.StatusBadRequest, "VALIDATION_FAILED",
+		"Check the search fields, values and pagination bounds."},
+	{domain.ErrSavedSearchLimit, http.StatusConflict, "SAVED_SEARCH_LIMIT_REACHED",
+		"You can save up to 20 searches. Remove one before saving another."},
 	{domain.ErrInvalidCredentials, http.StatusUnauthorized, "INVALID_CREDENTIALS",
 		"Incorrect login details."},
 	{domain.ErrUnauthenticated, http.StatusUnauthorized, "UNAUTHENTICATED",

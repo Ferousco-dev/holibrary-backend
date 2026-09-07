@@ -156,7 +156,17 @@ type User struct {
 func (u User) CanBorrow() bool { return u.Status == UserActive }
 
 // Book is a bibliographic record: one title, shared by all of its copies.
+type FacetValue struct {
+	Value string `json:"value"`
+	Count int    `json:"count"`
+}
+
 type Book struct {
+	Edition            string
+	Language           string
+	Faculty            string
+	Department         string
+	CreatedAt          time.Time
 	ID                 uuid.UUID
 	Title              string
 	Subtitle           string

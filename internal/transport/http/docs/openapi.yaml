@@ -307,6 +307,126 @@ paths:
         "204": { description: Event accepted }
         "401": { description: Invalid webhook signature }
 
+  /books/new-arrivals:
+    get:
+      tags: [Catalogue]
+      summary: Browse new physical arrivals
+      description: Ordered by cataloguing creation time descending. Archived titles are excluded.
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/cataloguePage' }
+        - { $ref: '#/components/parameters/cataloguePerPage' }
+      responses:
+        "200":
+          description: Physical catalogue titles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Book' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        "400": { $ref: '#/components/responses/ValidationFailed' }
+
+  /books/{id}/related:
+    get:
+      tags: [Catalogue]
+      summary: Find related physical titles
+      description: Shared subjects rank before shared authors. The current title and archived titles are excluded. A missing or archived source title returns an empty list.
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { name: per_page, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 6 } }
+      responses:
+        "200":
+          description: Physical catalogue titles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Book' }
+        "400": { $ref: '#/components/responses/ValidationFailed' }
+
+  /catalogue/facets:
+    get:
+      tags: [Catalogue]
+      summary: Browse public catalogue filter values and title counts
+      description: Only nonempty values attached to non-archived physical titles are returned. Counts represent titles, not copies or member affiliations.
+      security: []
+      responses:
+        "200":
+          description: Public catalogue facets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/CatalogueFacets' }
+        "400": { $ref: '#/components/responses/ValidationFailed' }
+
+  /me/saved-searches:
+    post:
+      tags: [My account]
+      summary: Save a catalogue search
+      description: Member only. Owner comes exclusively from the Bearer token. At most 20 saved searches per member. No notifications are sent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewSavedSearch' }
+      responses:
+        "201":
+          description: Search saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/SavedSearch' }
+        "400": { $ref: '#/components/responses/ValidationFailed' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409":
+          description: The member already has 20 saved searches (SAVED_SEARCH_LIMIT_REACHED).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      tags: [My account]
+      summary: List your saved searches
+      description: Member only. Returns only searches owned by the Bearer token's member; there is no owner selector.
+      responses:
+        "200":
+          description: Your saved searches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/SavedSearch' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /me/saved-searches/{id}:
+    delete:
+      tags: [My account]
+      summary: Delete your saved search
+      description: Member only. Missing searches and another member's searches both return NOT_FOUND.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        "200": { $ref: '#/components/responses/StatusOK' }
+        "400": { $ref: '#/components/responses/ValidationFailed' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
   /books:
     get:
       tags: [Catalogue]
@@ -320,20 +440,37 @@ paths:
         OPAC searches. `q` is a weighted full-text search across all three, 
         a title match outranks an author match, which outranks a subject match.
 
+        All filters are optional and combined. Empty, unknown, repeated, or invalid
+        parameters return 400 VALIDATION_FAILED; year_from must not exceed year_to.
+        Boolean filters accept true/false and legacy 1/0. Both available and
+        borrowable test whether a circulating copy can leave after server-side
+        final-copy retention, preserving existing availability semantics. False
+        selects the inverse condition. Use on_shelf in results for shelf presence.
+        newest/oldest sort by publication year; use new-arrivals for cataloguing time.
+        Archived titles are excluded.
+
         Every result carries its derived **wing** and **availability**, so a
         reader knows both whether to come in and which way to walk.
       security: []
       parameters:
-        - { name: q, in: query, schema: { type: string }, description: Free-text across title, author and subject., example: clean code }
-        - { name: title, in: query, schema: { type: string } }
-        - { name: author, in: query, schema: { type: string } }
-        - { name: subject, in: query, schema: { type: string } }
-        - { name: isbn, in: query, schema: { type: string }, description: Hyphens are ignored., example: "978-0-13-235088-4" }
-        - { name: call_number, in: query, schema: { type: string }, description: Matches from the start of the LCC class mark., example: "QA76" }
-        - { name: class, in: query, schema: { type: string, maxLength: 1 }, description: "Single LCC class letter. A-J is the South wing, K-Z the North." }
-        - { name: available, in: query, schema: { type: boolean }, description: Only titles with a circulating copy on the shelf. }
-        - { $ref: '#/components/parameters/page' }
-        - { $ref: '#/components/parameters/perPage' }
+        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 500 } }
+        - { name: title, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: author, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: subject, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: isbn, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: call_number, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: class, in: query, schema: { type: string, minLength: 1, maxLength: 1, pattern: "^[A-Za-z]$" } }
+        - { name: faculty, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: department, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: language, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: wing, in: query, schema: { type: string, enum: [South, North, Unknown] } }
+        - { name: available, in: query, schema: { type: boolean } }
+        - { name: borrowable, in: query, schema: { type: boolean } }
+        - { name: year_from, in: query, schema: { type: integer, minimum: 1, maximum: 9999 } }
+        - { name: year_to, in: query, schema: { type: integer, minimum: 1, maximum: 9999 } }
+        - { name: sort, in: query, schema: { type: string, enum: [relevance, title, newest, oldest], default: relevance } }
+        - { $ref: '#/components/parameters/cataloguePage' }
+        - { $ref: '#/components/parameters/cataloguePerPage' }
       responses:
         "200":
           description: Matching titles
@@ -346,6 +483,7 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Book' }
                   meta: { $ref: '#/components/schemas/Meta' }
+        "400": { $ref: '#/components/responses/ValidationFailed' }
     post:
       tags: [Catalogue]
       summary: Add a bibliographic record
@@ -1271,6 +1409,15 @@ components:
         hashed, and are rotated on every use.
 
   parameters:
+    cataloguePage:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 1000000, default: 1 }
+    cataloguePerPage:
+      name: per_page
+      in: query
+      description: Invalid limits are rejected with VALIDATION_FAILED.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
     id:
       name: id
       in: path
@@ -1356,6 +1503,63 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    CatalogueFacet:
+      type: object
+      required: [value, count]
+      properties:
+        value: { type: string }
+        count: { type: integer, minimum: 0 }
+    CatalogueFacets:
+      type: object
+      properties:
+        subjects: { type: array, items: { $ref: '#/components/schemas/CatalogueFacet' } }
+        authors: { type: array, items: { $ref: '#/components/schemas/CatalogueFacet' } }
+        languages: { type: array, items: { $ref: '#/components/schemas/CatalogueFacet' } }
+        publication_years: { type: array, items: { $ref: '#/components/schemas/CatalogueFacet' } }
+        wings: { type: array, items: { $ref: '#/components/schemas/CatalogueFacet' } }
+        faculties: { type: array, items: { $ref: '#/components/schemas/CatalogueFacet' } }
+        departments: { type: array, items: { $ref: '#/components/schemas/CatalogueFacet' } }
+
+    SavedSearchQuery:
+      type: object
+      additionalProperties: false
+      description: The same optional filters as GET /books. Booleans and integers must be JSON primitives. Unknown fields and reversed year ranges are rejected.
+      properties:
+        q: { type: string, minLength: 1, maxLength: 500 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        author: { type: string, minLength: 1, maxLength: 200 }
+        subject: { type: string, minLength: 1, maxLength: 200 }
+        isbn: { type: string, minLength: 1, maxLength: 200 }
+        call_number: { type: string, minLength: 1, maxLength: 200 }
+        class: { type: string, minLength: 1, maxLength: 1, pattern: "^[A-Za-z]$" }
+        faculty: { type: string, minLength: 1, maxLength: 200 }
+        department: { type: string, minLength: 1, maxLength: 200 }
+        language: { type: string, minLength: 1, maxLength: 200 }
+        wing: { type: string, enum: [South, North, Unknown] }
+        available: { type: boolean }
+        borrowable: { type: boolean }
+        year_from: { type: integer, minimum: 1, maximum: 9999 }
+        year_to: { type: integer, minimum: 1, maximum: 9999 }
+        sort: { type: string, enum: [relevance, title, newest, oldest], default: relevance }
+        page: { type: integer, minimum: 1, maximum: 1000000 }
+        per_page: { type: integer, minimum: 1, maximum: 100 }
+    NewSavedSearch:
+      type: object
+      additionalProperties: false
+      required: [name, query]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        query: { $ref: '#/components/schemas/SavedSearchQuery' }
+    SavedSearch:
+      type: object
+      additionalProperties: false
+      required: [id, name, query, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        query: { $ref: '#/components/schemas/SavedSearchQuery' }
+        created_at: { type: string, format: date-time }
+
     Error:
       type: object
       properties:
@@ -1429,7 +1633,15 @@ components:
 
     Book:
       type: object
+      description: Public physical-title metadata. Lowercase enriched metadata is omitted when unavailable; existing PascalCase fields remain compatible.
       properties:
+        edition: { type: string }
+        publication_year: { type: integer }
+        publisher: { type: string }
+        language: { type: string }
+        description: { type: string }
+        subjects: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
         ID: { type: string, format: uuid }
         Title: { type: string, example: Clean Code }
         Subtitle: { type: string }
@@ -1474,6 +1686,10 @@ components:
       type: object
       required: [title, call_number]
       properties:
+        edition: { type: string }
+        language: { type: string }
+        faculty: { type: string, description: Catalogue classification only; not a member affiliation. }
+        department: { type: string, description: Catalogue classification only; not a member affiliation. }
         title: { type: string }
         subtitle: { type: string }
         isbn13: { type: string, description: Hyphens are stripped. }

@@ -102,3 +102,10 @@ NFR-017,Error handling: Uniform error envelope. Stack traces and driver errors n
 NFR-018,Portability: Runs from a single container image with no host-specific configuration,non-functional,DES-009,,,specified
 NFR-019,"Accessibility support: API supplies the text alternatives, labels and semantic data the frontend needs for WCAG compliance",non-functional,DES-009,,,specified
 NFR-020,Auditability: Every state-changing staff action attributable to an account and a timestamp,non-functional,DES-009,internal/repository/postgres/audit_repo.go,,implemented
+REQ-075,Validated parameterised catalogue discovery and pagination,functional,DES-001,docs/catalogue-discovery.md,TC-106,verified
+REQ-076,Public active-title facets with counts,functional,DES-001,docs/catalogue-discovery.md,TC-107,verified
+REQ-077,New arrivals ordered by cataloguing time,functional,DES-001,docs/catalogue-discovery.md,TC-108,verified
+REQ-078,Related active titles ranked by subjects then authors,functional,DES-001,docs/catalogue-discovery.md,TC-109,verified
+REQ-079,Optional rich metadata and explicit public projection,functional,DES-001,docs/catalogue-discovery.md,TC-110,verified
+REQ-080,Private authenticated saved searches with concurrent-safe limit,functional,DES-001,docs/catalogue-discovery.md,TC-111,verified
+REQ-081,Disabled future notification model and unchanged loan authorisation,functional,DES-001,docs/catalogue-discovery.md,TC-112,verified

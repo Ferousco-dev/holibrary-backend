@@ -19,6 +19,7 @@ type Handlers struct {
 	Members       *handler.MemberHandler
 	Reservations  *handler.ReservationHandler
 	Bookmarks     *handler.BookmarkHandler
+	SavedSearches *handler.SavedSearchHandler
 	Devices       *handler.DeviceHandler
 	Lookup        *handler.LookupHandler
 	Admin         *handler.AdminHandler
@@ -83,6 +84,9 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	// account, exactly as they may walk in and browse the shelves (REQ-037).
 	mux.HandleFunc("GET /api/v1/books", h.Catalogue.Search)
 	mux.HandleFunc("GET /api/v1/books/{id}", h.Catalogue.Get)
+	mux.HandleFunc("GET /api/v1/books/new-arrivals", h.Catalogue.NewArrivals)
+	mux.HandleFunc("GET /api/v1/books/{id}/related", h.Catalogue.Related)
+	mux.HandleFunc("GET /api/v1/catalogue/facets", h.Catalogue.Facets)
 
 	mux.Handle("POST /api/v1/auth/login", throttle(http.HandlerFunc(h.Auth.Login)))
 	mux.Handle("POST /api/v1/auth/refresh", throttle(http.HandlerFunc(h.Auth.Refresh)))
@@ -122,6 +126,11 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	mux.Handle("GET /api/v1/me/bookmarks", authenticate(http.HandlerFunc(h.Bookmarks.List)))
 	mux.Handle("POST /api/v1/bookmarks", authenticate(http.HandlerFunc(h.Bookmarks.Create)))
 	mux.Handle("DELETE /api/v1/bookmarks/{bookID}", authenticate(http.HandlerFunc(h.Bookmarks.Delete)))
+
+	// Saved queries are private to the member identified by the access token.
+	mux.Handle("GET /api/v1/me/saved-searches", authenticate(middleware.RequireMember(http.HandlerFunc(h.SavedSearches.List))))
+	mux.Handle("POST /api/v1/me/saved-searches", authenticate(middleware.RequireMember(http.HandlerFunc(h.SavedSearches.Create))))
+	mux.Handle("DELETE /api/v1/me/saved-searches/{id}", authenticate(middleware.RequireMember(http.HandlerFunc(h.SavedSearches.Delete))))
 
 	// Push registrations belong to the signed-in account. Registering a device
 	// against somebody else would send them a stranger's due dates (REQ-071).

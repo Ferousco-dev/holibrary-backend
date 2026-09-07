@@ -526,3 +526,38 @@ check comparing identifiers referenced anywhere in the repository against those
 recorded in the table found none outstanding. That check is worth repeating
 whenever the ledger is touched; an identifier cited in code but absent from the
 log is a defect nobody can look up.
+
+## 2026-09-07 | CR-001 | PHYSICAL CATALOGUE DISCOVERY
+The stakeholder requested enhanced search, facets, arrivals, related titles,
+optional metadata and member-owned saved searches, explicitly excluding digital
+repository capabilities and changes to POST /loans. They authorised continuation
+following the mode question. FLEET used three bounded specialists plus parent
+integration/review, preserving the existing hybrid process and risk register.
+
+REQ-075..081 and TC-106..112 are recorded in docs/catalogue-discovery.md and the
+traceability table. DEC-031 preserves available/retention semantics; DEC-032
+limits affiliations to catalogue metadata. Requirements, architecture and HTTP
+contracts were reviewed against existing code before delegated construction.
+Independent review then identified malformed RawQuery handling and documentation
+mismatches; each was corrected and verified. No gate override was required.
+
+Verification passed: go test -race ./... and go test -race -tags livedb ./...
+against isolated local PostgreSQL, go vet ./..., and git diff --check. Concurrent
+saved-search creation produced exactly 20 successes and 10 limit errors from 30
+requests. All migrations applied locally. Gate evidence and release boundaries
+are in docs/catalogue-discovery.md; implementation verification is complete.
+
+No deployment, hosted migration, notification delivery, digital repository
+capability or desk-loan change occurred. Existing RSK-001..009 remain open and
+outside this feature's closure. The malformed-query regression is the process
+improvement carried forward from this run.
+
+## 2026-09-07 | CR-001 | RELEASE AUTHORISATION
+The stakeholder explicitly requested pushing the completed change to GitHub and
+deploying it. The local main branch matches origin/main before this release.
+Coverage gates passed: domain 94.7%, service 75.2%, auth 83.6%. Formatting and
+diff checks passed. Release proceeds through the existing GitHub Actions pipeline
+(test/security/migration safety/image build -> Render deploy -> production smoke).
+The local verification-only status above describes the prior implementation turn;
+this entry records the subsequent deployment authorisation. Deployment outcome
+must be verified from the workflow and live discovery endpoints.
