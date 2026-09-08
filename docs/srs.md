@@ -240,6 +240,22 @@ the system models a library that does not exist.
 | REQ-073 | The system shall publish an OpenAPI 3 specification and serve interactive Swagger documentation. |
 | REQ-074 | The system shall expose a health endpoint reporting service and database reachability. |
 
+### 4.15 Catalogue discovery and saved searches
+
+Added by change request **CR-001**, approved and implemented after the original
+baseline. The full specification, decisions and verification are in
+`docs/catalogue-discovery.md`.
+
+| ID | Requirement |
+|---|---|
+| REQ-075 | The system shall filter and paginate the catalogue on validated, parameterised query fields, rejecting unknown, repeated, blank or malformed parameters. |
+| REQ-076 | The system shall publish facet values and title counts for public browsing, excluding archived titles. |
+| REQ-077 | The system shall list new arrivals ordered by the time a title was catalogued. |
+| REQ-078 | The system shall offer related active titles for a given title, preferring shared subjects over shared authors. |
+| REQ-079 | The system shall carry optional bibliographic metadata and project an explicit public response, never exposing internal stock or affiliation fields. |
+| REQ-080 | The system shall let a member keep private saved searches, validated and owned by that member, to a maximum of twenty. |
+| REQ-081 | Saved-search notifications shall remain disabled, and the desk loan route and existing OpenAPI conventions shall be preserved unchanged. |
+
 ---
 
 ## 5. Non-functional requirements

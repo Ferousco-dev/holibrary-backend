@@ -267,6 +267,21 @@ Run as a walkthrough at the defence. Each is phrased as the library would.
 | TC-104 | A librarian lists overdue loans and sees who holds what | REQ-052, REQ-054 |
 | TC-105 | A book lost while on loan is recorded as lost, **without faking a return** | I-04 |
 
+### Catalogue discovery and saved searches (CR-001)
+
+Added with change request CR-001, after the original baseline. Each case is
+automated; the Go test names are in `docs/catalogue-discovery.md`.
+
+| ID | Case | Requirement |
+|---|---|---|
+| TC-106 | Catalogue filtering and pagination reject unknown, repeated, blank and malformed parameters | REQ-075 |
+| TC-107 | Facets exclude archived titles and count titles rather than copies | REQ-076 |
+| TC-108 | New arrivals are ordered by cataloguing time and bounded by the page size | REQ-077 |
+| TC-109 | Related titles prefer shared subjects over shared authors and exclude archived ones | REQ-078 |
+| TC-110 | The public book projection carries the optional metadata and withholds internal stock fields | REQ-079 |
+| TC-111 | A saved search belongs to one member, is refused to another, and the twentieth is the last | REQ-080 |
+| TC-112 | Saved-search notification remains disabled and the desk loan route still refuses a member | REQ-081 |
+
 ---
 
 ## 8. Pass and fail criteria
