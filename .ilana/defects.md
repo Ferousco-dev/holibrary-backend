@@ -155,3 +155,12 @@ specification became a build artifact rather than a note.
 The wider lesson is about the edit, not the YAML: a textual replacement that
 matches an indented substring will silently reparent structure. The narrower one
 is that a validator you only run by hand is a validator you will forget to run.
+
+## DEF-029 — Librarian-to-member role update fails with a database constraint error
+
+Reported 2026-09-08. Newly-created librarian accounts have NULL category; setting
+only role=member violates members_need_a_category and returned 500. Reproduced
+against PostgreSQL before implementation. Fixed by accepting and validating an
+explicit category, preserving existing categories, and returning NO_CATEGORY when
+required. See CR-002, docs/role-change-fix.md and TC-113..117. Local race-enabled
+verification passed; no database constraint was weakened.

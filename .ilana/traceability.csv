@@ -109,3 +109,4 @@ REQ-078,Related active titles ranked by subjects then authors,functional,DES-001
 REQ-079,Optional rich metadata and explicit public projection,functional,DES-001,docs/catalogue-discovery.md,TC-110,verified
 REQ-080,Private authenticated saved searches with concurrent-safe limit,functional,DES-001,docs/catalogue-discovery.md,TC-111,verified
 REQ-081,Disabled future notification model and unchanged loan authorisation,functional,DES-001,docs/catalogue-discovery.md,TC-112,verified
+REQ-082,Role changes preserve or explicitly assign a valid borrowing category,functional,DES-001,docs/role-change-fix.md,TC-113;TC-114;TC-115;TC-116;TC-117,verified

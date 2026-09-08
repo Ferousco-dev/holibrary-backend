@@ -1295,7 +1295,13 @@ paths:
     patch:
       tags: [Administration]
       summary: Change a member's authorization role
-      description: Administrator only. Role changes are audited, and the last administrator cannot be demoted.
+      description: |
+        Administrator only. Changes are audited, and the last administrator cannot
+        be demoted. When changing to member, supply category if the account has
+        no existing borrowing category (accounts created as librarian/admin
+        normally do not have one). An existing category is preserved when omitted.
+        Category may only be supplied with role member. Successful role/category
+        changes invalidate existing sessions; the affected user must sign in again.
       parameters: [{ $ref: '#/components/parameters/id' }]
       requestBody:
         required: true
@@ -1303,11 +1309,28 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [role]
               properties:
                 role: { type: string, enum: [member, librarian, admin] }
+                category:
+                  type: string
+                  enum: [undergraduate, postgraduate, staff]
+                  description: Required when changing to member without an existing borrowing category.
+            example: { role: member, category: undergraduate }
       responses:
         "200": { $ref: '#/components/responses/StatusOK' }
+        "400":
+          description: Invalid role, request shape, or category (INVALID_MEMBER_CATEGORY).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "422":
+          description: NO_CATEGORY. Supply category because the account has no existing borrowing category. No change was made.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
         "409":

@@ -22,7 +22,7 @@ type MemberStore interface {
 	List(ctx context.Context, search string, limit, offset int) ([]domain.User, int, error)
 	FindByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus, staffID uuid.UUID) error
-	UpdateRole(ctx context.Context, id uuid.UUID, role domain.Role, staffID uuid.UUID) error
+	UpdateRole(ctx context.Context, id uuid.UUID, role domain.Role, category *domain.MemberCategory, staffID uuid.UUID) error
 	ExistingIdentifiers(ctx context.Context, identifiers []string) (map[string]bool, error)
 }
 
@@ -491,10 +491,15 @@ func (s *MemberService) SetStatus(ctx context.Context, id uuid.UUID, status doma
 
 // SetRole changes an account's authorization role. The HTTP route is admin-only;
 // repository enforcement protects the last-administrator invariant atomically.
-func (s *MemberService) SetRole(ctx context.Context, id uuid.UUID, role domain.Role, staffID uuid.UUID) error {
+func (s *MemberService) SetRole(ctx context.Context, id uuid.UUID, role domain.Role, category *domain.MemberCategory, staffID uuid.UUID) error {
+	if category != nil {
+		if _, valid := domain.TermsFor(*category); !valid || role != domain.RoleMember {
+			return domain.ErrInvalidMemberCategory
+		}
+	}
 	switch role {
 	case domain.RoleMember, domain.RoleLibrarian, domain.RoleAdmin:
-		return s.members.UpdateRole(ctx, id, role, staffID)
+		return s.members.UpdateRole(ctx, id, role, category, staffID)
 	default:
 		return fmt.Errorf("role must be member, librarian or admin")
 	}

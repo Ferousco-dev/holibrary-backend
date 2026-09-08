@@ -33,13 +33,13 @@
   ],
   "overrides": [],
   "counters": {
-    "REQ": 81,
+    "REQ": 82,
     "NFR": 20,
     "DOM": 9,
     "DES": 11,
-    "TC": 112,
-    "DEF": 27,
-    "CR": 1,
+    "TC": 117,
+    "DEF": 29,
+    "CR": 2,
     "DEC": 32,
     "RSK": 9
   },
@@ -62,9 +62,9 @@
     "pipeline": "GitHub Actions: test, security, migrations, docker -> deploy -> smoke"
   },
   "latest_change": {
-    "id": "CR-001",
-    "scope": "physical catalogue discovery and saved searches",
-    "status": "implemented and verified locally; not deployed",
-    "evidence": "docs/catalogue-discovery.md"
+    "id": "CR-002",
+    "scope": "role change category correction",
+    "status": "verified locally; production rollout and authorised account repair pending",
+    "evidence": "docs/role-change-fix.md"
   }
 }

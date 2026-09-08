@@ -23,7 +23,6 @@ import (
 	// (~450 KB) so named zones resolve identically everywhere.
 	_ "time/tzdata"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Ferousco-dev/holibrary-backend/internal/auth"
@@ -238,20 +237,9 @@ func run() error {
 		Ping:          func() error { return db.Ping(ctx) },
 	}, transport.Options{
 		Issuer: issuer,
-		// A token issued before the account's last password change is dead,
-		// however long it has left to run. One primary-key lookup per
-		// authenticated request is the price of being able to end a session
-		// immediately rather than in fifteen minutes (DEF-021).
-		SessionValid: func(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error) {
-			invalidBefore, err := users.TokensInvalidBefore(ctx, userID)
-			if err != nil {
-				return false, err
-			}
-			// Whole-second granularity: JWT `iat` is a Unix second, so a token
-			// minted in the same second as a password change would otherwise
-			// compare as older than it.
-			return !issuedAt.Add(time.Second).Before(invalidBefore), nil
-		},
+		// Check revocation and current role in one primary-key lookup so a
+		// demoted account cannot keep using staff claims from an older JWT.
+		SessionValid:      users.SessionValid,
 		CORSOrigins:       cfg.CORSOrigins,
 		Limiter:           limiter,
 		TrustProxyHeaders: cfg.TrustProxyHeaders,

@@ -31,15 +31,16 @@ var (
 
 	// Circulation. These are the rules that make the system a library rather
 	// than a database with a web page in front of it.
-	ErrCopyNotFound      = errors.New("that copy was not found")
-	ErrCopyNotAvailable  = errors.New("that copy is not available")
-	ErrCopyNotBorrowable = errors.New("that copy does not circulate")
-	ErrLoanLimitReached  = errors.New("borrowing limit reached for this member category")
-	ErrMemberNotActive   = errors.New("member account is not active")
-	ErrLoanAlreadyClosed = errors.New("that loan has already been returned")
-	ErrLastCopyRetained  = errors.New("the last available copy is kept on the shelf")
-	ErrNoCategory        = errors.New("member has no borrowing category")
-	ErrReservedForOther  = errors.New("that copy is reserved for another member")
+	ErrCopyNotFound          = errors.New("that copy was not found")
+	ErrCopyNotAvailable      = errors.New("that copy is not available")
+	ErrCopyNotBorrowable     = errors.New("that copy does not circulate")
+	ErrLoanLimitReached      = errors.New("borrowing limit reached for this member category")
+	ErrMemberNotActive       = errors.New("member account is not active")
+	ErrLoanAlreadyClosed     = errors.New("that loan has already been returned")
+	ErrLastCopyRetained      = errors.New("the last available copy is kept on the shelf")
+	ErrInvalidMemberCategory = errors.New("category must be undergraduate, postgraduate or staff and requires the member role")
+	ErrNoCategory            = errors.New("member has no borrowing category")
+	ErrReservedForOther      = errors.New("that copy is reserved for another member")
 
 	// Reservations.
 	ErrAlreadyReserved = errors.New("you already have an open reservation for this title")

@@ -20,6 +20,7 @@ type fakeMemberStore struct {
 	created   []postgres.CreateUserParams
 	conflicts map[string]bool
 	role      domain.Role
+	category  *domain.MemberCategory
 }
 
 func (f *fakeMemberStore) Create(_ context.Context, p postgres.CreateUserParams) (domain.User, error) {
@@ -54,8 +55,9 @@ func (f *fakeMemberStore) UpdateStatus(context.Context, uuid.UUID, domain.UserSt
 	return nil
 }
 
-func (f *fakeMemberStore) UpdateRole(_ context.Context, _ uuid.UUID, role domain.Role, _ uuid.UUID) error {
+func (f *fakeMemberStore) UpdateRole(_ context.Context, _ uuid.UUID, role domain.Role, category *domain.MemberCategory, _ uuid.UUID) error {
 	f.role = role
+	f.category = category
 	return nil
 }
 
@@ -276,7 +278,7 @@ func TestSetRoleAcceptsSupportedRoles(t *testing.T) {
 	store := &fakeMemberStore{}
 	svc := service.NewMemberService(store, nil)
 	for _, role := range []domain.Role{domain.RoleMember, domain.RoleLibrarian, domain.RoleAdmin} {
-		if err := svc.SetRole(context.Background(), uuid.New(), role, uuid.New()); err != nil {
+		if err := svc.SetRole(context.Background(), uuid.New(), role, nil, uuid.New()); err != nil {
 			t.Fatalf("SetRole(%s): %v", role, err)
 		}
 		if store.role != role {
@@ -288,7 +290,7 @@ func TestSetRoleAcceptsSupportedRoles(t *testing.T) {
 func TestSetRoleRejectsUnsupportedRoles(t *testing.T) {
 	store := &fakeMemberStore{}
 	svc := service.NewMemberService(store, nil)
-	if err := svc.SetRole(context.Background(), uuid.New(), domain.Role("owner"), uuid.New()); err == nil {
+	if err := svc.SetRole(context.Background(), uuid.New(), domain.Role("owner"), nil, uuid.New()); err == nil {
 		t.Fatal("unsupported role must be rejected")
 	}
 	if store.role != "" {
@@ -320,5 +322,31 @@ func TestDryRunCountsMembersAlreadyOnTheRoll(t *testing.T) {
 	}
 	if len(store.created) != 0 {
 		t.Errorf("a dry run wrote %d members; it must write none", len(store.created))
+	}
+}
+
+func TestSetRoleValidatesBorrowingCategory(t *testing.T) {
+	for _, category := range []domain.MemberCategory{domain.CategoryUndergraduate, domain.CategoryPostgraduate, domain.CategoryStaff} {
+		store := &fakeMemberStore{}
+		svc := service.NewMemberService(store, nil)
+		if err := svc.SetRole(context.Background(), uuid.New(), domain.RoleMember, &category, uuid.New()); err != nil {
+			t.Fatal(err)
+		}
+		if store.category == nil || *store.category != category {
+			t.Fatal("category was not passed to repository")
+		}
+	}
+	for _, test := range []struct {
+		role     domain.Role
+		category domain.MemberCategory
+	}{{domain.RoleMember, ""}, {domain.RoleMember, "student"}, {domain.RoleLibrarian, domain.CategoryStaff}, {domain.RoleAdmin, domain.CategoryUndergraduate}} {
+		store := &fakeMemberStore{}
+		svc := service.NewMemberService(store, nil)
+		if err := svc.SetRole(context.Background(), uuid.New(), test.role, &test.category, uuid.New()); !errors.Is(err, domain.ErrInvalidMemberCategory) {
+			t.Fatalf("invalid category: %v", err)
+		}
+		if store.role != "" {
+			t.Fatal("invalid request reached repository")
+		}
 	}
 }

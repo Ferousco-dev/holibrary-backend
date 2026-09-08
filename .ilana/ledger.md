@@ -561,3 +561,26 @@ diff checks passed. Release proceeds through the existing GitHub Actions pipelin
 The local verification-only status above describes the prior implementation turn;
 this entry records the subsequent deployment authorisation. Deployment outcome
 must be verified from the workflow and live discovery endpoints.
+
+## 2026-09-08 | CR-002 / DEF-029 | ROLE CHANGE CORRECTION
+The stakeholder reported a production 500 when changing a newly-created librarian
+into a normal member, then explicitly selected Staff as that account's borrowing
+category. The failure was reproduced as SQLSTATE 23514 (members_need_a_category).
+REQ-082 and TC-113..117 are documented in docs/role-change-fix.md.
+
+The role endpoint now accepts an explicit category and preserves existing ones.
+The service validates the input; the repository resolves missing categories under
+lock, and commits role/category/revocation/audit together. Missing category returns
+NO_CATEGORY rather than INTERNAL. No category is guessed and no constraint is
+removed. Ordered admin locks retain last-administrator protection.
+
+Independent review caught a bad OpenAPI response reference and transaction-start
+revocation timing; both were corrected. Session validation now also compares the
+JWT role with the stored role, addressing same-second stale privileges without
+adding another database round trip. Default authentication failure handling is
+unchanged. Full race suite with isolated PostgreSQL and go vet passed.
+
+The authorised account repair uses the same tested service/repository transaction
+and verifies the audit record. The local .env endpoint is stale, so production
+configuration is read from the authenticated Render service without logging any
+credentials. Deployment and account-repair outcomes are verified separately.

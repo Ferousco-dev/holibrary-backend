@@ -241,25 +241,19 @@ func (r *UserRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain
 	return translate(tx.Commit(ctx))
 }
 
-// UpdateRole changes authorization in the same transaction as its audit line.
-// Admin rows are locked before counting so two concurrent demotions cannot both
-// observe a second administrator and leave the system with none.
-func (r *UserRepo) UpdateRole(ctx context.Context, id uuid.UUID, role domain.Role, staffID uuid.UUID) error {
+// UpdateRole changes authorization and its borrowing category atomically with
+// the audit record. Category is preserved unless explicitly supplied, so an
+// existing member can be promoted and later demoted without losing loan terms.
+func (r *UserRepo) UpdateRole(ctx context.Context, id uuid.UUID, role domain.Role, category *domain.MemberCategory, staffID uuid.UUID) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return translate(err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
-	var current domain.Role
-	if err := tx.QueryRow(ctx, `SELECT role FROM users WHERE id = $1 FOR UPDATE`, id).Scan(&current); err != nil {
-		return translate(err)
-	}
-	if current == role {
-		return translate(tx.Commit(ctx))
-	}
-
-	adminRows, err := tx.Query(ctx, `SELECT id FROM users WHERE role = 'admin' FOR UPDATE`)
+	// Lock administrators in a consistent order before the target row. Locking
+	// each target first deadlocks two simultaneous administrator demotions.
+	adminRows, err := tx.Query(ctx, `SELECT id FROM users WHERE role = 'admin' ORDER BY id FOR UPDATE`)
 	if err != nil {
 		return translate(err)
 	}
@@ -272,16 +266,40 @@ func (r *UserRepo) UpdateRole(ctx context.Context, id uuid.UUID, role domain.Rol
 		return translate(err)
 	}
 	adminRows.Close()
+
+	var current domain.Role
+	var existingCategory *domain.MemberCategory
+	if err := tx.QueryRow(ctx, `SELECT role, category FROM users WHERE id = $1 FOR UPDATE`, id).Scan(&current, &existingCategory); err != nil {
+		return translate(err)
+	}
 	if current == domain.RoleAdmin && role != domain.RoleAdmin && adminCount <= 1 {
 		return domain.ErrConflict
 	}
+	resolved := existingCategory
+	if category != nil {
+		if _, valid := domain.TermsFor(*category); !valid || role != domain.RoleMember {
+			return domain.ErrInvalidMemberCategory
+		}
+		resolved = category
+	}
+	if role == domain.RoleMember && resolved == nil {
+		return domain.ErrNoCategory
+	}
+	categoryChanged := (existingCategory == nil) != (resolved == nil) ||
+		(existingCategory != nil && resolved != nil && *existingCategory != *resolved)
+	if current == role && !categoryChanged {
+		return translate(tx.Commit(ctx))
+	}
 
-	if _, err := tx.Exec(ctx, `UPDATE users SET role = $2, updated_at = now() WHERE id = $1`, id, role); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE users SET role = $2, category = $3,
+	    tokens_invalid_before = clock_timestamp(), updated_at = now() WHERE id = $1`, id, role, resolved); err != nil {
 		return translate(err)
 	}
 	if err := recordAudit(ctx, tx, staffID, "MEMBER_ROLE_CHANGED", "user", id, map[string]any{
-		"from": current,
-		"to":   role,
+		"from":          current,
+		"to":            role,
+		"category_from": existingCategory,
+		"category_to":   resolved,
 	}); err != nil {
 		return err
 	}
@@ -323,6 +341,16 @@ func (r *UserRepo) PasswordHash(ctx context.Context, id uuid.UUID) (string, erro
 	var hash string
 	err := r.db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, id).Scan(&hash)
 	return hash, translate(err)
+}
+
+// SessionValid checks both the revocation timestamp and the current role in one
+// primary-key lookup. Comparing roles rejects stale privileges even for JWTs
+// issued in the same second as a role change (JWT timestamps have no fractions).
+func (r *UserRepo) SessionValid(ctx context.Context, id uuid.UUID, issuedAt time.Time, tokenRole string) (bool, error) {
+	var valid bool
+	err := r.db.QueryRow(ctx, `SELECT role::text = $2 AND tokens_invalid_before <= $3
+	    FROM users WHERE id = $1`, id, tokenRole, issuedAt.Add(time.Second)).Scan(&valid)
+	return valid, translate(err)
 }
 
 // TokensInvalidBefore returns the instant before which every session for this

@@ -187,7 +187,8 @@ type updateMemberStatusRequest struct {
 }
 
 type updateMemberRoleRequest struct {
-	Role string `json:"role"`
+	Role     string                 `json:"role"`
+	Category *domain.MemberCategory `json:"category"`
 }
 
 // SetStatus suspends or reactivates a member (REQ-015).
@@ -237,7 +238,7 @@ func (h *MemberHandler) SetRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	staffID, _ := middleware.UserID(r.Context())
-	if err := h.members.SetRole(r.Context(), id, role, staffID); err != nil {
+	if err := h.members.SetRole(r.Context(), id, role, req.Category, staffID); err != nil {
 		response.FromError(w, err)
 		return
 	}

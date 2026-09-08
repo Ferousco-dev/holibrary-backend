@@ -66,7 +66,7 @@ func RequestID(ctx context.Context) string {
 }
 
 // SessionValidator reports whether a token issued at the given instant is still
-// good for this account.
+// good for this account and still carries its current authorization role.
 //
 // It exists because a JWT cannot be recalled. Refresh tokens are revocable, but
 // an access token already in an attacker's hands stays valid until it expires --
@@ -78,7 +78,7 @@ func RequestID(ctx context.Context) string {
 // price of being able to end a session immediately. It is paid deliberately:
 // the alternative is telling a student their password change takes effect in a
 // quarter of an hour (DEF-021).
-type SessionValidator func(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error)
+type SessionValidator func(ctx context.Context, userID uuid.UUID, issuedAt time.Time, tokenRole string) (bool, error)
 
 // Authenticate verifies the bearer token and puts the caller in the context.
 //
@@ -101,10 +101,10 @@ func Authenticate(issuer *auth.TokenIssuer, valid SessionValidator) func(http.Ha
 				return
 			}
 
-			// A token minted before the account's last password change is dead,
+			// A revoked token or one carrying an outdated role is rejected,
 			// however long it has left to run (DEF-021).
 			if valid != nil && claims.IssuedAt != nil {
-				ok, err := valid(r.Context(), claims.UserID, claims.IssuedAt.Time)
+				ok, err := valid(r.Context(), claims.UserID, claims.IssuedAt.Time, claims.Role)
 				if err != nil {
 					// Failing closed here would take the library offline on a
 					// database blip, and the request is about to touch the same
