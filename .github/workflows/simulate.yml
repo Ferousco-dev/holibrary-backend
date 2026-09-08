@@ -17,11 +17,19 @@
 
 name: Simulate library activity
 
+# The schedule is switched off as of 8 September 2026.
+#
+# Production now holds real borrower records, and the simulator refuses to run
+# against a real member roll: it lends books, registers borrowers and closes
+# loans, which is not something to do to people's actual accounts. That guard
+# is working correctly, so every scheduled run since the roll was imported has
+# gone red for the right reason.
+#
+# A red cross three times a day for a check that is deliberately declining to
+# run is worse than no check, so the schedule is removed and the workflow is
+# kept for manual use against a demonstration database.
+
 on:
-  schedule:
-    # 07:00, 13:00 and 19:00 UTC, which is 08:00, 14:00 and 20:00 in Lagos:
-    # roughly when a library is busy.
-    - cron: '0 7,13,19 * * *'
   workflow_dispatch:
     inputs:
       passes:
