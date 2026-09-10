@@ -13,10 +13,10 @@ import (
 )
 
 type fakeReservations struct {
-	createErr   error
-	hold        time.Duration
-	promoted    domain.Reservation
-	promoteErr  error
+	createErr      error
+	hold           time.Duration
+	promoted       domain.Reservation
+	promoteErr     error
 	cancelledID    uuid.UUID
 	cancelWasReady bool
 	cancelBookID   uuid.UUID
