@@ -106,10 +106,13 @@ func Authenticate(issuer *auth.TokenIssuer, valid SessionValidator) func(http.Ha
 			if valid != nil && claims.IssuedAt != nil {
 				ok, err := valid(r.Context(), claims.UserID, claims.IssuedAt.Time, claims.Role)
 				if err != nil {
-					// Failing closed here would take the library offline on a
-					// database blip, and the request is about to touch the same
-					// database anyway. Log loudly and continue.
+					// Failing open here let a revoked or role-changed token
+					// through on any database blip -- precisely the window in
+					// which revocation matters most. Refuse the request and
+					// force the client to re-authenticate.
 					slog.Error("could not check session validity", "error", err)
+					response.FromError(w, domain.ErrTokenInvalid)
+					return
 				} else if !ok {
 					response.FromError(w, domain.ErrTokenInvalid)
 					return
@@ -139,9 +142,12 @@ func Authenticate(issuer *auth.TokenIssuer, valid SessionValidator) func(http.Ha
 }
 
 // isPasswordChangeRoute reports whether the request is one an account with a
-// pending password change is still permitted to make.
+// pending password change is still permitted to make. The path is normalised
+// so a trailing slash or a differently-cased mount does not silently open or
+// close the gate.
 func isPasswordChangeRoute(r *http.Request) bool {
-	switch r.URL.Path {
+	p := strings.ToLower(strings.TrimRight(r.URL.Path, "/"))
+	switch p {
 	case "/api/v1/auth/change-password", "/api/v1/auth/logout":
 		return true
 	}

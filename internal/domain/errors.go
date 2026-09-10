@@ -23,11 +23,12 @@ var (
 	ErrConflict = errors.New("conflicts with existing data")
 
 	// Catalogue and inventory.
-	ErrInvalidSearch      = errors.New("invalid catalogue search parameters")
-	ErrSavedSearchLimit   = errors.New("saved search limit reached")
-	ErrDuplicateAccession = errors.New("accession number already exists")
-	ErrDuplicateISBN      = errors.New("a book with this ISBN already exists")
-	ErrInvalidCallNumber  = errors.New("call number is not a valid LCC class mark")
+	ErrInvalidBookMetadata = errors.New("invalid bibliographic metadata")
+	ErrInvalidSearch       = errors.New("invalid catalogue search parameters")
+	ErrSavedSearchLimit    = errors.New("saved search limit reached")
+	ErrDuplicateAccession  = errors.New("accession number already exists")
+	ErrDuplicateISBN       = errors.New("a book with this ISBN already exists")
+	ErrInvalidCallNumber   = errors.New("call number is not a valid LCC class mark")
 
 	// Circulation. These are the rules that make the system a library rather
 	// than a database with a web page in front of it.

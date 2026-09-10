@@ -14,7 +14,7 @@ import (
 type ReservationStore interface {
 	Create(ctx context.Context, bookID, userID uuid.UUID, hold time.Duration) (domain.Reservation, error)
 	ListForUser(ctx context.Context, userID uuid.UUID) ([]domain.Reservation, error)
-	Cancel(ctx context.Context, id, userID uuid.UUID) error
+	Cancel(ctx context.Context, id, userID uuid.UUID) (wasReady bool, bookID uuid.UUID, err error)
 	PromoteNext(ctx context.Context, bookID uuid.UUID, hold time.Duration) (domain.Reservation, error)
 	ExpireStale(ctx context.Context) (int, error)
 	BookIDForCopy(ctx context.Context, copyID uuid.UUID) (uuid.UUID, error)
@@ -57,8 +57,41 @@ func (s *ReservationService) MyReservations(ctx context.Context, memberID uuid.U
 }
 
 // Cancel withdraws a member's own reservation (REQ-057).
+//
+// When the cancelled row was already 'ready', the physical copy is being held
+// for that member: cancelling without promoting the next person keeps the
+// copy off the shelf and blocks the queue. Runs the promotion path just as a
+// return would, on best effort -- the cancellation stands either way.
 func (s *ReservationService) Cancel(ctx context.Context, id, memberID uuid.UUID) error {
-	return s.reservations.Cancel(ctx, id, memberID)
+	wasReady, bookID, err := s.reservations.Cancel(ctx, id, memberID)
+	if err != nil {
+		return err
+	}
+	if wasReady && bookID != uuid.Nil {
+		s.promoteAndNotify(ctx, bookID)
+	}
+	return nil
+}
+
+// promoteAndNotify runs the "next-in-line" path used by both a returned copy
+// and a cancelled ready reservation.
+func (s *ReservationService) promoteAndNotify(ctx context.Context, bookID uuid.UUID) {
+	res, err := s.reservations.PromoteNext(ctx, bookID, HoldPeriod)
+	if errors.Is(err, domain.ErrNotFound) {
+		return
+	}
+	if err != nil {
+		return
+	}
+	payload := map[string]any{
+		"reservation_id": res.ID.String(),
+		"book_id":        res.BookID.String(),
+	}
+	if res.ExpiresAt != nil {
+		payload["expires_at"] = res.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	_ = s.notifier.Queue(ctx, res.UserID, "push", "reservation_ready", payload)
+	_ = s.notifier.Queue(ctx, res.UserID, "email", "reservation_ready", payload)
 }
 
 // OnCopyReturned promotes whoever is next in the queue for the returned title

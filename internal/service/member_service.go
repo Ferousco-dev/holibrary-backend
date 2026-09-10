@@ -289,22 +289,33 @@ func (s *MemberService) ImportCSV(ctx context.Context, actor domain.Role, actorI
 	// all rather than one query per row.
 	seen := make(map[string]int)
 	pending := map[int]string{}
-	line := 1
 
 	for {
 		record, err := reader.Read()
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		line++
 		result.TotalRows++
 
+		// Ask the csv reader for the line of the row it just returned rather
+		// than tracking a manual counter: a manual counter is off-by-one
+		// whenever a row contains an embedded newline, so the error message
+		// points at the wrong file line. On a malformed row Read returns a
+		// *csv.ParseError that carries its own StartLine.
+		var line int
 		if err != nil {
+			var pe *csv.ParseError
+			if errors.As(err, &pe) {
+				line = pe.StartLine
+			}
 			result.Invalid++
 			result.Rows = append(result.Rows, ImportRow{
 				Line: line, Status: "invalid", Detail: "malformed row: " + err.Error(),
 			})
 			continue
+		}
+		if len(record) > 0 {
+			line, _ = reader.FieldPos(0)
 		}
 
 		field := func(name string) string {

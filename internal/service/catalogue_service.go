@@ -36,7 +36,7 @@ func NewCatalogueService(b CatalogueStore) *CatalogueService { return &Catalogue
 //
 // HOL classifies with LCC rather than Dewey, so a purely numeric Dewey-style
 // number is rejected as a data-entry mistake (DOM-001).
-var callNumberPattern = regexp.MustCompile(`^[A-Z]{1,3}\s?\d`)
+var callNumberPattern = regexp.MustCompile(`^[A-Z]{1,3}\s*[0-9]+(?:\.[0-9]+)?(?:[ .][A-Z0-9][A-Z0-9 .:/-]*)?$`)
 
 // Search runs a catalogue query across the access points the card catalogue has
 // always offered -- author, title and subject (DOM-007, REQ-028..035).
@@ -102,8 +102,23 @@ func (s *CatalogueService) CreateBook(ctx context.Context, p postgres.CreateBook
 	if !callNumberPattern.MatchString(strings.ToUpper(strings.TrimSpace(p.CallNumber))) {
 		return domain.Book{}, domain.ErrInvalidCallNumber
 	}
-	p.ISBN13 = normaliseISBN(p.ISBN13)
-	p.ISBN10 = normaliseISBN(p.ISBN10)
+	metadata, err := validateBookMetadata(postgres.UpdateBookParams{
+		Title: &p.Title, Subtitle: &p.Subtitle, ISBN13: &p.ISBN13, ISBN10: &p.ISBN10,
+		Publisher: &p.Publisher, PlaceOfPublication: &p.PlaceOfPublication,
+		PublishedYear: p.PublishedYear, CallNumber: &p.CallNumber, Description: &p.Description,
+		Edition: &p.Edition, Language: &p.Language, Faculty: &p.Faculty, Department: &p.Department,
+		Authors: &p.Authors, Subjects: &p.Subjects,
+	})
+	if err != nil {
+		return domain.Book{}, err
+	}
+	p.Title, p.Subtitle = *metadata.Title, *metadata.Subtitle
+	p.ISBN13, p.ISBN10 = *metadata.ISBN13, *metadata.ISBN10
+	p.Publisher, p.PlaceOfPublication = *metadata.Publisher, *metadata.PlaceOfPublication
+	p.CallNumber, p.Description = *metadata.CallNumber, *metadata.Description
+	p.Edition, p.Language = *metadata.Edition, *metadata.Language
+	p.Faculty, p.Department = *metadata.Faculty, *metadata.Department
+	p.Authors, p.Subjects = *metadata.Authors, *metadata.Subjects
 	return s.books.CreateBook(ctx, p)
 }
 

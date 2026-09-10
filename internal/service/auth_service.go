@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -20,6 +21,14 @@ import (
 	"github.com/Ferousco-dev/holibrary-backend/internal/domain"
 	"github.com/Ferousco-dev/holibrary-backend/internal/ratelimit"
 )
+
+// rateLimitJitter sleeps for a small random interval so a caller cannot use
+// the distinct rate-limit reply (or its absence) to enumerate accounts against
+// Login vs RequestPasswordReset: both endpoints add the same jitter on the
+// limited path (DEF-023).
+func rateLimitJitter() {
+	time.Sleep(time.Duration(rand.Intn(400)+100) * time.Millisecond)
+}
 
 // UserStore is the slice of persistence the auth service needs.
 type UserStore interface {
@@ -128,12 +137,6 @@ type Session struct {
 // after the applicant presents an identity card, exactly as HOL does it today
 // (DOM-006, DEC-006).
 func (s *AuthService) Login(ctx context.Context, login, password string) (Session, error) {
-	// Five attempts a minute against this account, whoever is asking and from
-	// wherever. This is the control that makes guessing impractical (DEF-019).
-	if !s.allow(ctx, "login", login, ratelimit.PerAccountLogin) {
-		return Session{}, domain.ErrRateLimited
-	}
-
 	user, hash, err := s.users.FindByLogin(ctx, login)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
@@ -148,6 +151,17 @@ func (s *AuthService) Login(ctx context.Context, login, password string) (Sessio
 			return Session{}, domain.ErrInvalidCredentials
 		}
 		return Session{}, err
+	}
+
+	// Five attempts a minute against this account, whoever is asking and from
+	// wherever. Keyed on the resolved user id so the three aliases a member
+	// may sign in with (matric, staff number, email) share one bucket -- keyed
+	// on the raw login string, an attacker got three times the intended
+	// attempts by cycling through them. Route-level middleware limits the
+	// pre-lookup resolver by IP (DEF-019).
+	if !s.allow(ctx, "login:uid", user.ID.String(), ratelimit.PerAccountLogin) {
+		rateLimitJitter()
+		return Session{}, domain.ErrRateLimited
 	}
 
 	ok, err := auth.VerifyPassword(password, hash)
@@ -270,6 +284,7 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 	// to flood a member's inbox. The caller is told nothing either way, so the
 	// limit is not itself an enumeration oracle.
 	if !s.allow(ctx, "reset", email, ratelimit.PerAccountReset) {
+		rateLimitJitter()
 		return nil
 	}
 
@@ -304,6 +319,16 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, next string) err
 	userID, err := s.tokens.ConsumePasswordReset(ctx, auth.HashToken(token))
 	if err != nil {
 		return domain.ErrTokenInvalid
+	}
+	// A reset must not resurrect a suspended or inactive account. The status
+	// is not disclosed externally: the caller sees the same reply as the
+	// login path so the reset endpoint cannot be used to probe account state.
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user.Status != domain.UserActive {
+		return domain.ErrMemberNotActive
 	}
 	hash, err := auth.HashPassword(next)
 	if err != nil {

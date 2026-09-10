@@ -41,9 +41,13 @@ func scanUser(row pgx.Row) (domain.User, error) {
 // email, because members are told to sign in with whichever they remember
 // (REQ-001). It also returns the password hash, which no other read does.
 func (r *UserRepo) FindByLogin(ctx context.Context, login string) (domain.User, string, error) {
+	// Email is compared case-insensitively so a login typed with a different
+	// case matches the roll. The identifier branch already lowercases both
+	// sides; email now does the same. Note: a future migration should add a
+	// functional index on lower(email) if one is not already in place.
 	const q = `SELECT ` + userColumns + `, password_hash
 	             FROM users
-	            WHERE lower(identifier) = lower($1) OR email = $1`
+	            WHERE lower(identifier) = lower($1) OR lower(email) = lower($1)`
 
 	var u domain.User
 	var category *string
@@ -349,7 +353,7 @@ func (r *UserRepo) PasswordHash(ctx context.Context, id uuid.UUID) (string, erro
 func (r *UserRepo) SessionValid(ctx context.Context, id uuid.UUID, issuedAt time.Time, tokenRole string) (bool, error) {
 	var valid bool
 	err := r.db.QueryRow(ctx, `SELECT role::text = $2 AND tokens_invalid_before <= $3
-	    FROM users WHERE id = $1`, id, tokenRole, issuedAt.Add(time.Second)).Scan(&valid)
+	    FROM users WHERE id = $1`, id, tokenRole, issuedAt).Scan(&valid)
 	return valid, translate(err)
 }
 

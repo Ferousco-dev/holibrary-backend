@@ -149,6 +149,7 @@ func NewRouter(h Handlers, opts Options) http.Handler {
 	mux.Handle("GET /api/v1/books/lookup", staff(h.Lookup.Lookup))
 
 	mux.Handle("POST /api/v1/books", staff(h.Catalogue.Create))
+	mux.Handle("PATCH /api/v1/books/{id}", staff(h.Catalogue.UpdateBook))
 	mux.Handle("POST /api/v1/books/{id}/archive", staff(h.Catalogue.Archive))
 	mux.Handle("POST /api/v1/books/{id}/copies", staff(h.Catalogue.AddCopy))
 	mux.Handle("PATCH /api/v1/copies/{id}", staff(h.Catalogue.UpdateCopy))

@@ -73,6 +73,8 @@ var errorMap = []struct {
 	code    string
 	message string
 }{
+	{domain.ErrInvalidBookMetadata, http.StatusBadRequest, "VALIDATION_FAILED",
+		"Check the supplied title, ISBN, publication year, call number and metadata values."},
 	{domain.ErrInvalidSearch, http.StatusBadRequest, "VALIDATION_FAILED",
 		"Check the search fields, values and pagination bounds."},
 	{domain.ErrSavedSearchLimit, http.StatusConflict, "SAVED_SEARCH_LIMIT_REACHED",

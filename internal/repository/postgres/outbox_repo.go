@@ -89,16 +89,26 @@ type PendingMessage struct {
 //
 // scheduled_at gates the claim, so a reminder written today for next week waits.
 func (r *OutboxRepo) Pending(ctx context.Context, limit int) ([]PendingMessage, error) {
+	// One atomic claim per row. The prior implementation used FOR UPDATE
+	// SKIP LOCKED inside an auto-commit SELECT, releasing the row locks the
+	// moment the query returned. A crash between fetch and MarkSent then let
+	// another worker re-fetch the same rows and send them again. Flipping the
+	// status to 'claimed' as part of the same statement means only rows in
+	// 'pending' are ever picked up; MarkFailed puts them back to 'pending'.
 	rows, err := r.db.Query(ctx, `
-		SELECT o.id, o.user_id, u.email, u.full_name, o.channel, o.template, o.payload
-		  FROM outbox o JOIN users u ON u.id = o.user_id
-		 WHERE o.id IN (
-		     SELECT id FROM outbox
-		      WHERE status = 'pending' AND attempts < 5 AND scheduled_at <= now()
-		      ORDER BY scheduled_at
-		      FOR UPDATE SKIP LOCKED
-		      LIMIT $1)
-		 ORDER BY o.scheduled_at`, limit)
+		WITH claimed AS (
+		    UPDATE outbox SET status = 'claimed', attempts = attempts + 1
+		     WHERE id IN (
+		         SELECT id FROM outbox
+		          WHERE status = 'pending' AND attempts < 5 AND scheduled_at <= now()
+		          ORDER BY scheduled_at
+		          FOR UPDATE SKIP LOCKED
+		          LIMIT $1)
+		    RETURNING id, user_id, channel, template, payload, scheduled_at
+		)
+		SELECT c.id, c.user_id, u.email, u.full_name, c.channel, c.template, c.payload
+		  FROM claimed c JOIN users u ON u.id = c.user_id
+		 ORDER BY c.scheduled_at`, limit)
 	if err != nil {
 		return nil, translate(err)
 	}
@@ -256,13 +266,19 @@ func (r *OutboxRepo) RegisterDevice(ctx context.Context, userID uuid.UUID, token
 }
 
 func (r *OutboxRepo) MarkSent(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE outbox SET status='sent', sent_at=now() WHERE id=$1`, id)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return translate(err)
 	}
-	_, err = r.db.Exec(ctx, `UPDATE invitation_deliveries SET status = 'sent', sent_at = coalesce(sent_at, now()) WHERE outbox_id = $1 AND status = 'queued'`, id)
-	return translate(err)
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+	if _, err := tx.Exec(ctx,
+		`UPDATE outbox SET status='sent', sent_at=now() WHERE id=$1`, id); err != nil {
+		return translate(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE invitation_deliveries SET status = 'sent', sent_at = coalesce(sent_at, now()) WHERE outbox_id = $1 AND status = 'queued'`, id); err != nil {
+		return translate(err)
+	}
+	return translate(tx.Commit(ctx))
 }
 
 func (r *OutboxRepo) UpdateProviderID(ctx context.Context, outboxID uuid.UUID, providerID string) error {

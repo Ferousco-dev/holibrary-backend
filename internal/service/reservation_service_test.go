@@ -17,9 +17,11 @@ type fakeReservations struct {
 	hold        time.Duration
 	promoted    domain.Reservation
 	promoteErr  error
-	cancelledID uuid.UUID
-	expired     int
-	bookForCopy uuid.UUID
+	cancelledID    uuid.UUID
+	cancelWasReady bool
+	cancelBookID   uuid.UUID
+	expired        int
+	bookForCopy    uuid.UUID
 }
 
 func (f *fakeReservations) Create(_ context.Context, bookID, userID uuid.UUID, hold time.Duration) (domain.Reservation, error) {
@@ -32,9 +34,9 @@ func (f *fakeReservations) Create(_ context.Context, bookID, userID uuid.UUID, h
 func (f *fakeReservations) ListForUser(context.Context, uuid.UUID) ([]domain.Reservation, error) {
 	return nil, nil
 }
-func (f *fakeReservations) Cancel(_ context.Context, id, _ uuid.UUID) error {
+func (f *fakeReservations) Cancel(_ context.Context, id, _ uuid.UUID) (bool, uuid.UUID, error) {
 	f.cancelledID = id
-	return nil
+	return f.cancelWasReady, f.cancelBookID, nil
 }
 func (f *fakeReservations) PromoteNext(_ context.Context, _ uuid.UUID, hold time.Duration) (domain.Reservation, error) {
 	f.hold = hold

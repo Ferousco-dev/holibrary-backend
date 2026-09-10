@@ -582,6 +582,43 @@ paths:
                         items: { $ref: '#/components/schemas/Copy' }
         "404": { $ref: '#/components/responses/NotFound' }
 
+
+    patch:
+      tags: [Catalogue]
+      summary: Update bibliographic metadata (librarian or admin)
+      description: |
+        Requires a valid staff Bearer access token. Members receive 403;
+        missing or invalid tokens receive 401. Updates only supplied metadata.
+        Unknown or duplicate fields, null values, empty objects, and trailing
+        JSON are rejected. Optional strings may be cleared with an empty string,
+        and authors/subjects with an empty array. Title and call_number cannot
+        be cleared. ISBN-10 and ISBN-13 checksums are validated; hyphens and
+        spaces are removed, as for creation. A changed LCC call number updates
+        the derived class and wing. No copy, accession, policy, loan, or
+        reservation data can be edited here; copy edits use PATCH /copies/{id}.
+        A patch containing identical normalized values is a no-op and leaves updated_at and audit unchanged.
+        For changes, updated_at and BOOK_METADATA_UPDATED audit details (actor_id,
+        entity_type book, entity_id, changed_fields) are written transactionally.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookMetadataPatch' }
+      responses:
+        "200":
+          description: Book metadata updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Book' }
+        "400": { $ref: '#/components/responses/ValidationFailed' }
+        "401": { $ref: '#/components/responses/Unauthenticated' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
   /books/{id}/archive:
     post:
       tags: [Catalogue]
@@ -1706,25 +1743,48 @@ components:
             under the retention policy. Use it to explain to a reader why a book
             that is present cannot be borrowed.
 
+    BookMetadataPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: All fields are optional; supplied null values are invalid. Validation is shared with book creation.
+      properties:
+        title: { type: string, minLength: 1, maxLength: 500 }
+        subtitle: { type: string, maxLength: 500 }
+        isbn13: { type: string, description: Valid ISBN-13 checksum and 978/979 prefix; hyphens and spaces removed. Empty clears the value. }
+        isbn10: { type: string, description: Valid ISBN-10 checksum; hyphens and spaces removed. Final X is accepted. Empty clears the value. }
+        publisher: { type: string, maxLength: 500 }
+        place_of_publication: { type: string, maxLength: 500 }
+        published_year: { type: integer, minimum: 1000, maximum: 2100, description: Must also be no later than the current year plus one. }
+        call_number: { type: string, minLength: 1, maxLength: 200, description: Library of Congress classification mark; Dewey numbers are rejected., example: QA76.6 .I585 }
+        edition: { type: string, maxLength: 200 }
+        language: { type: string, maxLength: 200 }
+        faculty: { type: string, maxLength: 200 }
+        department: { type: string, maxLength: 200 }
+        description: { type: string, maxLength: 20000 }
+        authors: { type: array, maxItems: 100, items: { type: string, minLength: 1, maxLength: 200 } }
+        subjects: { type: array, maxItems: 100, items: { type: string, minLength: 1, maxLength: 200 } }
+
     NewBook:
       type: object
       required: [title, call_number]
+      description: Bibliographic metadata with shared ISBN checksum, LCC, year, and field-length validation.
       properties:
-        edition: { type: string }
-        language: { type: string }
-        faculty: { type: string, description: Catalogue classification only; not a member affiliation. }
-        department: { type: string, description: Catalogue classification only; not a member affiliation. }
-        title: { type: string }
-        subtitle: { type: string }
-        isbn13: { type: string, description: Hyphens are stripped. }
-        isbn10: { type: string }
-        publisher: { type: string }
-        place_of_publication: { type: string }
-        published_year: { type: integer }
-        call_number: { type: string, example: QA76.76 .M37 }
-        description: { type: string }
-        authors: { type: array, items: { type: string } }
-        subjects: { type: array, items: { type: string } }
+        title: { type: string, minLength: 1, maxLength: 500 }
+        subtitle: { type: string, maxLength: 500 }
+        isbn13: { type: string, description: Valid ISBN-13 checksum and 978/979 prefix; hyphens and spaces removed. }
+        isbn10: { type: string, description: Valid ISBN-10 checksum; hyphens and spaces removed. Final X is accepted. }
+        publisher: { type: string, maxLength: 500 }
+        place_of_publication: { type: string, maxLength: 500 }
+        published_year: { type: integer, minimum: 1000, maximum: 2100, description: Must also be no later than the current year plus one. }
+        call_number: { type: string, minLength: 1, maxLength: 200, description: Library of Congress classification mark; Dewey numbers are rejected., example: QA76.6 .I585 }
+        edition: { type: string, maxLength: 200 }
+        language: { type: string, maxLength: 200 }
+        faculty: { type: string, maxLength: 200 }
+        department: { type: string, maxLength: 200 }
+        description: { type: string, maxLength: 20000 }
+        authors: { type: array, maxItems: 100, items: { type: string, minLength: 1, maxLength: 200 } }
+        subjects: { type: array, maxItems: 100, items: { type: string, minLength: 1, maxLength: 200 } }
 
     ExternalBook:
       type: object

@@ -46,11 +46,15 @@ func (f *FCM) Send(ctx context.Context, m Message) error {
 	}
 
 	// FCM v1 rejects non-string data values, so the payload is flattened.
+	// Every value is coerced with fmt.Sprint so numeric fields like
+	// days_overdue survive as strings the client can parse, instead of being
+	// silently dropped by a v.(string) assertion.
 	data := map[string]string{"template": m.Template}
 	for k, v := range m.Payload {
-		if s, ok := v.(string); ok {
-			data[k] = s
+		if v == nil {
+			continue
 		}
+		data[k] = fmt.Sprint(v)
 	}
 
 	body, err := json.Marshal(map[string]any{

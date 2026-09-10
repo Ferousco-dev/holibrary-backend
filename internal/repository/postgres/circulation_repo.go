@@ -70,25 +70,26 @@ func (r *CirculationRepo) borrow(ctx context.Context, p BorrowParams, selfChecko
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
-	// A self-checkout may consume only the head reservation for this title. The
-	// copy lock above serializes competing checkouts of this physical copy; the
-	// row lock here serializes competing attempts to consume the queue head.
+	// Both the desk-issued Borrow path and self-checkout must respect the queue
+	// head: whoever is at the front of the list has priority, so a librarian
+	// cannot hand the copy to somebody who walked up while another member is
+	// waiting for it. The row lock here serializes competing attempts to
+	// consume that head, and the copy lock below serializes competing
+	// checkouts of the physical copy itself.
 	var reservationID, reservationUserID uuid.UUID
-	if selfCheckout {
-		err = tx.QueryRow(ctx, `
-			SELECT r.id, r.user_id
-			  FROM reservations r
-			 WHERE r.book_id = (SELECT book_id FROM copies WHERE id = $1)
-			   AND r.status IN ('pending', 'ready')
-			 ORDER BY r.created_at, r.id
-			 LIMIT 1
-			 FOR UPDATE`, p.CopyID).Scan(&reservationID, &reservationUserID)
-		if err == nil && reservationUserID != p.UserID {
-			return domain.Loan{}, domain.ErrReservedForOther
-		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return domain.Loan{}, translate(err)
-		}
+	err = tx.QueryRow(ctx, `
+		SELECT r.id, r.user_id
+		  FROM reservations r
+		 WHERE r.book_id = (SELECT book_id FROM copies WHERE id = $1)
+		   AND r.status IN ('pending', 'ready')
+		 ORDER BY r.created_at, r.id
+		 LIMIT 1
+		 FOR UPDATE`, p.CopyID).Scan(&reservationID, &reservationUserID)
+	if err == nil && reservationUserID != p.UserID {
+		return domain.Loan{}, domain.ErrReservedForOther
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return domain.Loan{}, translate(err)
 	}
 	// Step 1: claim the copy. The status change and the availability test are
 	// one statement, so no other transaction can act between them.
@@ -189,7 +190,7 @@ func (r *CirculationRepo) borrow(ctx context.Context, p BorrowParams, selfChecko
 		return domain.Loan{}, translate(err)
 	}
 
-	if selfCheckout && reservationID != uuid.Nil {
+	if reservationID != uuid.Nil {
 		if _, err := tx.Exec(ctx, `
 			UPDATE reservations SET status = 'fulfilled'
 			 WHERE id = $1 AND user_id = $2 AND status IN ('pending', 'ready')`,
@@ -293,8 +294,15 @@ func (r *CirculationRepo) Return(ctx context.Context, loanID, staffID uuid.UUID)
 
 func (r *CirculationRepo) explainUnreturnableLoan(ctx context.Context, loanID uuid.UUID) error {
 	var exists bool
-	if err := r.db.QueryRow(ctx,
-		`SELECT true FROM loans WHERE id = $1`, loanID).Scan(&exists); err != nil {
+	err := r.db.QueryRow(ctx,
+		`SELECT true FROM loans WHERE id = $1`, loanID).Scan(&exists)
+	if err != nil {
+		// pgx.ErrNoRows is mapped by translate to domain.ErrNotFound; return
+		// that verbatim so the caller sees the difference between a loan that
+		// never existed and one that was already returned.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
 		return translate(err)
 	}
 	return domain.ErrLoanAlreadyClosed

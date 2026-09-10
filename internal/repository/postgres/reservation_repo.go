@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -137,17 +138,47 @@ func (r *ReservationRepo) ListForUser(ctx context.Context, userID uuid.UUID) ([]
 // The user id is part of the WHERE clause rather than checked afterwards, so a
 // member cannot cancel somebody else's place in a queue by guessing an id
 // (I-11).
-func (r *ReservationRepo) Cancel(ctx context.Context, id, userID uuid.UUID) error {
-	tag, err := r.db.Exec(ctx, `
-		UPDATE reservations SET status = 'cancelled'
-		 WHERE id = $1 AND user_id = $2 AND status IN ('pending','ready')`, id, userID)
+// Cancel reports whether the cancelled reservation had already been promoted
+// to 'ready' and the book it belonged to, so the caller can re-run the
+// promotion path: otherwise the copy the reservation was holding stays out of
+// circulation until manual intervention.
+func (r *ReservationRepo) Cancel(ctx context.Context, id, userID uuid.UUID) (wasReady bool, bookID uuid.UUID, err error) {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return translate(err)
+		return false, uuid.Nil, translate(err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	var priorStatus string
+	var ownerID uuid.UUID
+	err = tx.QueryRow(ctx,
+		`SELECT status, user_id, book_id FROM reservations WHERE id = $1 FOR UPDATE`, id).
+		Scan(&priorStatus, &ownerID, &bookID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, uuid.Nil, domain.ErrNotFound
 	}
-	return nil
+	if err != nil {
+		return false, uuid.Nil, translate(err)
+	}
+	if ownerID != userID {
+		// The reply is still 404: a distinct answer would confirm that a
+		// guessed id is real. The mismatch is logged for admin audit so
+		// tampering attempts are visible server-side.
+		slog.Warn("reservation cancel by non-owner",
+			"reservation_id", id, "subject_user_id", ownerID, "actor_user_id", userID)
+		return false, uuid.Nil, domain.ErrNotFound
+	}
+	if priorStatus != "pending" && priorStatus != "ready" {
+		return false, uuid.Nil, domain.ErrNotFound
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE reservations SET status = 'cancelled' WHERE id = $1`, id); err != nil {
+		return false, uuid.Nil, translate(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, uuid.Nil, translate(err)
+	}
+	return priorStatus == "ready", bookID, nil
 }
 
 // PromoteNext marks the member at the head of the queue as ready and returns
