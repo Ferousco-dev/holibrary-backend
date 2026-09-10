@@ -502,9 +502,14 @@ func (s *MemberService) SetStatus(ctx context.Context, id uuid.UUID, status doma
 
 // SetRole changes an account's authorization role. The HTTP route is admin-only;
 // repository enforcement protects the last-administrator invariant atomically.
+//
+// A borrowing category may be supplied with any role, so that a member of
+// library staff who also borrows books does not have to hold two separate
+// accounts. Members without a category are still refused by the CHECK
+// constraint in migration 0001 (members_need_a_category).
 func (s *MemberService) SetRole(ctx context.Context, id uuid.UUID, role domain.Role, category *domain.MemberCategory, staffID uuid.UUID) error {
 	if category != nil {
-		if _, valid := domain.TermsFor(*category); !valid || role != domain.RoleMember {
+		if _, valid := domain.TermsFor(*category); !valid {
 			return domain.ErrInvalidMemberCategory
 		}
 	}

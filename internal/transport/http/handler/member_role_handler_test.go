@@ -44,7 +44,7 @@ func TestMemberRoleHTTPCategoryAndAuthorisation(t *testing.T) {
 		{"invalid category", `{"role":"member","category":"student"}`, "admin", nil, 400, "INVALID_MEMBER_CATEGORY", 0},
 		{"empty category", `{"role":"member","category":""}`, "admin", nil, 400, "INVALID_MEMBER_CATEGORY", 0},
 		{"wrong category type", `{"role":"member","category":12}`, "admin", nil, 400, "VALIDATION_FAILED", 0},
-		{"category on librarian", `{"role":"librarian","category":"staff"}`, "admin", nil, 400, "INVALID_MEMBER_CATEGORY", 0},
+		{"category on librarian", `{"role":"librarian","category":"staff"}`, "admin", nil, 200, "", 1},
 		{"invalid role", `{"role":"user"}`, "admin", nil, 400, "VALIDATION_FAILED", 0},
 		{"last administrator", `{"role":"member","category":"staff"}`, "admin", domain.ErrConflict, 409, "CONFLICT", 1},
 		{"unknown account", `{"role":"member","category":"staff"}`, "admin", domain.ErrNotFound, 404, "NOT_FOUND", 1},

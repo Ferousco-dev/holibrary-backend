@@ -122,7 +122,7 @@ var errorMap = []struct {
 	{domain.ErrLoanLimitReached, http.StatusConflict, "LOAN_LIMIT_REACHED",
 		"This member has reached the borrowing limit for their category."},
 	{domain.ErrInvalidMemberCategory, http.StatusBadRequest, "INVALID_MEMBER_CATEGORY",
-		"category must be undergraduate, postgraduate or staff, and may only be supplied with role member."},
+		"category must be undergraduate, postgraduate or staff."},
 	{domain.ErrNoCategory, http.StatusUnprocessableEntity, "NO_CATEGORY",
 		"Choose a borrowing category for this member: undergraduate, postgraduate or staff."},
 	{domain.ErrPasswordTooWeak, http.StatusUnprocessableEntity, "PASSWORD_TOO_WEAK",

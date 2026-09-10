@@ -336,10 +336,14 @@ func TestSetRoleValidatesBorrowingCategory(t *testing.T) {
 			t.Fatal("category was not passed to repository")
 		}
 	}
+	// Invalid category strings are refused regardless of role. A category is
+	// permitted for any role (staff and admins may borrow), so librarian +
+	// staff-category and admin + undergraduate-category are valid and are
+	// exercised elsewhere in this file.
 	for _, test := range []struct {
 		role     domain.Role
 		category domain.MemberCategory
-	}{{domain.RoleMember, ""}, {domain.RoleMember, "student"}, {domain.RoleLibrarian, domain.CategoryStaff}, {domain.RoleAdmin, domain.CategoryUndergraduate}} {
+	}{{domain.RoleMember, ""}, {domain.RoleMember, "student"}, {domain.RoleLibrarian, "student"}, {domain.RoleAdmin, ""}} {
 		store := &fakeMemberStore{}
 		svc := service.NewMemberService(store, nil)
 		if err := svc.SetRole(context.Background(), uuid.New(), test.role, &test.category, uuid.New()); !errors.Is(err, domain.ErrInvalidMemberCategory) {
@@ -347,6 +351,22 @@ func TestSetRoleValidatesBorrowingCategory(t *testing.T) {
 		}
 		if store.role != "" {
 			t.Fatal("invalid request reached repository")
+		}
+	}
+
+	// Staff and admin accounts may now hold a borrowing category, so that the
+	// same person can both manage the library and borrow from it.
+	for _, test := range []struct {
+		role     domain.Role
+		category domain.MemberCategory
+	}{{domain.RoleLibrarian, domain.CategoryStaff}, {domain.RoleAdmin, domain.CategoryUndergraduate}} {
+		store := &fakeMemberStore{}
+		svc := service.NewMemberService(store, nil)
+		if err := svc.SetRole(context.Background(), uuid.New(), test.role, &test.category, uuid.New()); err != nil {
+			t.Fatalf("staff/admin with a category should be accepted: %v", err)
+		}
+		if store.role != test.role || store.category == nil || *store.category != test.category {
+			t.Fatalf("role/category not passed to repository (%v, %v)", store.role, store.category)
 		}
 	}
 }

@@ -39,7 +39,7 @@ var (
 	ErrMemberNotActive       = errors.New("member account is not active")
 	ErrLoanAlreadyClosed     = errors.New("that loan has already been returned")
 	ErrLastCopyRetained      = errors.New("the last available copy is kept on the shelf")
-	ErrInvalidMemberCategory = errors.New("category must be undergraduate, postgraduate or staff and requires the member role")
+	ErrInvalidMemberCategory = errors.New("category must be undergraduate, postgraduate or staff")
 	ErrNoCategory            = errors.New("member has no borrowing category")
 	ErrReservedForOther      = errors.New("that copy is reserved for another member")
 
